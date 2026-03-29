@@ -1,0 +1,1140 @@
+        DenoiseRep++: Enhanced Denoising Model for
+                  Representation Learning
+                                Guan’an Wang† , Zhengrui Xu† , Xiaowen Huang∗ , Zengguang Hou,
+                                           Shaogang Gong, Jian Zhang, Jitao Sang
+
+
+   Abstract—The denoising model has demonstrated remarkable                       geNet, UB200, Oxford-Pet, Flowers), object detection (COCO),
+capability as a generative framework, yet its potential in discrimi-              and image segmentation (ADE20K)—demonstrate consistent and
+native tasks remains underexplored. Representation learning plays                 significant improvements. We further validate the effectiveness
+a key role in such discriminative settings, which can be defined                  of our approach on both CNN-based (ResNet) and Transformer-
+as "the process of learning data representations (or features) that               based (ViT, Swin, Vmamda) architectures. The code is publicly
+facilitate the extraction of meaningful information for building                  available at https://github.com/wangguanan/DenoiseRep .
+classifiers or other predictive models" Bengio et al. [2013]. In this                Index Terms—diffusion model, representation learning,
+work, we introduce a new approach, termed Enhanced Denoising                      computation-free
+Model for Representation Learning (DenoiseRep++ ), which jointly
+performs feature extraction and denoising to enhance feature                                            I. I NTRODUCTION
+discriminability. In DenoiseRep++ , every embedding layer of the
+backbone network is interpreted as a denoising layer, enabling                       Denoising Diffusion Probabilistic Models (DDPM) Ho et al.
+recursive refinement of representations layer by layer. This design               [2020], commonly referred to as Diffusion Models, have
+conceptually bridges the two processes—feature extraction, which                  been widely recognized as a class of powerful generative
+hierarchically embeds representations from shallow to deep levels,                models Cao et al. [2024]. Generative models are capable of
+and denoising, which progressively removes noise through succes-
+sive stages. Subsequently, DenoiseRep++ merges the parameters                     producing high-fidelity samples (such as images, audio, or
+of feature extraction and denoising modules, and theoretically                    video) by modeling the joint probability distribution P (X, Y ),
+proves that the pre- and post-fusion forms are mathematically                     where X represents the data sample and Y the associated
+equivalent, thereby eliminating additional computational cost for                 condition. Diffusion models achieve this by progressively
+denoising. Moreover, we extend DenoiseRep++ with two synergistic                  adding Gaussian noise to data samples and then training a
+enhancements. (1) To enhance the representational capacity of
+the denoising module, we employ a more expressive teacher                         denoising network to predict and remove the noise through an
+network during training for knowledge distillation. Specifically,                 inversion process. This framework enables the generation of
+the teacher provides richer and more discriminative feature                       diverse and detailed outputs, as exemplified by models such as
+representations, which help the student better capture structured                 Stable Diffusion Rombach et al. [2022], the DALL·E Ramesh
+noise patterns and improve the estimation of noise distributions.                 et al. [2021] series, and Midjourney — all of which are
+(2) To further improve denoising capability with limited denoising
+depth, multi-round single-layer denoising and multi-step denoising                fundamentally diffusion-based architectures.
+fusion are adopted. These improvements enable DenoiseRep++                           Despite their great success in generative modeling, the
+to achieve better feature denoising and maintain high compu-                      exploration of diffusion models in discriminative tasks remains
+tational efficiency, as verified through extensive experiments                    limited. Unlike generative models that learn P (X, Y ), discrim-
+on multiple benchmarks. DenoiseRep++ functions as a label-                        inative models focus on modeling the conditional distribution
+free algorithm that incrementally refines features, while also
+serving as a complementary mechanism when labels are available.                   P (Y |X) to predict labels or attributes, such as class categories
+Comprehensive experiments across various visual discrimination                    in classification, bounding boxes in detection, or pixel-level
+tasks—including re-identification (Market-1501, DukeMTMC-                         annotations in segmentation. Several recent attempts have
+reID, MSMT17, CUHK-03, VehicleID), image classification (Ima-                     integrated diffusion mechanisms into specific discriminative
+                                                                                  settings. For instance, DiffusionDet Chen et al. [2023] formu-
+   Guan’an      Wang      is     an     independent      researcher     (email:   lates object detection as a diffusion-based denoising process
+guan.wang0706@gmail.com).                                                         that transforms noisy boxes into precise object boxes, achieving
+   Zhengrui Xu, Xiaowen Huang and Jitao Sang are with the School of
+Computer Science and Technology, Beijing Jiaotong University (email: zrxu430;     competitive performance with established detectors. Similarly,
+xwhuang; jtsang@bjtu.edu.cn).                                                     DiffSeg Tian et al. [2023] leverages pre-trained diffusion
+   Xiaowen Huang and Jitao Sang are also with the Beijing Key Laboratory of       models (e.g., Stable Diffusion) for unsupervised zero-shot
+Traffic Data Mining and Embodied Intelligence, and with the Key Laboratory
+of Big Data & Artificial Intelligence in Transportation, Ministry of Education.   segmentation. It introduces an iterative merging scheme that
+   Zengguang Hou is with State Key Laboratory of Multimodal Artificial            integrates KL divergence–based attention maps to produce
+Intelligence Systems, Institute of Automation, Chinese Academy of Sciences        effective segmentation masks without requiring extra training
+(zengguang.hou@ia.ac.cn).
+   Shaogang Gong is with the School of Electronic Engineering and Computer        or textual supervision.
+Science, Queen Mary University of London, UK (e-mail: s.gong@qmul.ac.uk).            While these diffusion-based discriminative approaches have
+   Jian Zhang is with the School of Electronic and Computer Engineering,          shown potential, they are typically tailored to specific appli-
+Peking University, China (e-mail: zhangjian.sz@pku.edu.cn).
+   † These authors contributed equally to this work.                              cations and rely on particular data structures—for example,
+   ∗ Corresponding author.                                                        DiffusionDet Chen et al. [2023] operates on noisy bounding
+Fig. 1. Illustration of our idea. (a) A typical denoising model for generative tasks recursively applies a denoising layer. (b) A naive extension to discriminative
+models applies a recursive denoising layer on backbone features, causing extra inference latency. (c,d) Our DenoiseRep++ unifies feature extraction and
+denoising in a backbone pipeline, then merges denoising parameters into embedding layers, making features more discriminative without extra latency.
+
+
+
+boxes, and DiffSeg Tian et al. [2023] on noise-initialized seg- [2020]) gradually map features from low-level to high-level
+mentations. In this study, we explore a broader and more general abstractions. This difference in feature spaces poses a major
+question: how denoising models can facilitate representation compatibility challenge.
+learning, i.e., “learning representations (or features) of data       To overcome these difficulties and effectively integrate de-
+that make it easier to extract useful information for building noising into discriminative pipelines, we propose the Enhanced
+classifiers or other predictors” Bengio et al. [2013], thereby Denoising Model for Representation Learning (DenoiseRep++ ),
+benefiting discriminative frameworks. We employ person re- which consists of the following stages: First, a pre-trained
+identification (ReID) Bedagkar-Gala and Shah [2014], Ye backbone network is utilized and kept frozen during subsequent
+et al. [2021] as a benchmark, a task that aims to match training. This step leverages existing models freely available in
+pedestrian images across non-overlapping cameras and requires the community and preserves their semantic feature extraction
+highly identity-discriminative features despite variations in pose, ability. Given an image input, the backbone provides a sequence
+illumination, and occlusion.                                        of intermediate feature representations. Second, denoising
+   A straightforward solution is to directly apply a denois- layers are trained on these extracted features. Their parameters
+ing operation to the final-layer features of a backbone net- are initialized independently and not shared across layers.
+work Dosovitskiy et al. [2020], Krizhevsky et al. [2012], as The training process follows the DDPM Ho et al. [2020]
+shown in Fig. 1(b). This may enhance feature discrimination paradigm, except that DDPM employs a dynamic time step
+but introduces significant computational overhead, since each t ∈ [1, T ], while our denoising layers correspond to fixed
+denoising layer must sequentially process the output of the indices n ∈ [1, N ], where N denotes the number of backbone
+previous layer in a recursive fashion. Considering that modern layers (see Fig. 1(c)). Finally, to mitigate the inference
+backbones inherently consist of cascaded embedding layers latency introduced by these N denoising layers, we design a
+(e.g., convolutional or multi-head attention layers), we propose feature extraction–denoising fusion mechanism. As shown in
+a novel interpretation: treating each embedding layer as an Fig. 1(d), this method merges denoising parameters into the
+individual denoising layer. As illustrated in Fig. 1(c), this existing embedding layers, enabling unified feature extraction
+perspective allows the network to perform feature extraction and denoising without any extra computational burden. We
+and denoising in parallel across hierarchical layers, effectively further theoretically demonstrate that the fused and unfused
+transforming the backbone into a chain of progressive denoising formulations are mathematically equivalent (see Eq. (7)).
+operations.                                                           Building upon the DenoiseRep framework, we introduce two
+   However, implementing this idea is non-trivial because synergistic extensions to resolve the inherent trade-off between
+denoising layers typically require input and output features to denoising capacity and inference efficiency. First, since the
+reside in the same latent space, whereas conventional backbones denoising module is designed to be lightweight for seamless
+(e.g., ResNet Krizhevsky et al. [2012] or ViT Dosovitskiy et al. parameter fusion, this compact architecture limits its ability to
+model complex, high-dimensional noise distributions, leading                                  II. R ELATED W ORK
+to potential estimation bias. To address this, we employ a
+Teacher-Student Distillation paradigm. By leveraging a high-            Generative models aim to learn the underlying distribution
+capacity teacher network to guide the lightweight student, we        of  data before estimating class probabilities. They capture
+provide a more robust supervision signal that captures the           the  process by which data are generated through modeling
+uncertainty of noise patterns. This effectively calibrates the       the  probability   distribution of the inputs, thereby enabling the
+denoising direction, compensating for the student’s limited          creation of  new   synthetic samples. Typically, a generative model
+parameter scale. Second, single-step denoising often suffers         estimates   the  conditional    likelihood of each class P (x|y = k)
+from discretization errors when approximating the underlying         along  with   the  prior  class  probability P (y = k) from training
+data manifold. To mitigate this without increasing inference         data, and  then   computes    the  marginal distribution P (x) via the
+latency, we introduce Multi-step Denoising Fusion. This              law  of total  probability.   This   formulation allows the model to
+mechanism mathematically collapses a multi-round iterative           approximate     the  probability    distribution for each category of
+process into a single linear operation. It functions as a trajectory data.  As a  result,  generative    models   can  synthesize new data
+optimization strategy, simulating a progressive refinement path      by  sampling    from   the  learned   distribution.
+that aligns features more tightly with their semantic centers.          Classic examples include Generative Adversarial Networks
+Together, these enhancements enable DenoiseRep++ to achieve (GANs) Goodfellow et al. [2014], Karras et al. [2019],
+superior feature discriminability—quantitatively evidenced by Mirza and Osindero [2014] and Variational Autoencoders
+minimized intra-class variance and maximized inter-class (VAEs) Kingma and Welling [2013], Van Den Oord et al.
+separability—while strictly maintaining the computation-free [2017], Xu et al. [2022], Zhao et al. [2017], both of which
+inference property.                                                  generate realistic data by learning latent representations that
+                                                                     capture the structure of the underlying distribution. These
+   Our main contributions are summarized as follows:                 approaches have demonstrated outstanding performance in
+   (1) We propose a Enhanced Denoising Model for Rep- modeling data generation processes. Recently, research at-
+resentation Learning (DenoiseRep++ ), which integrates the tention has shifted toward diffusion models for generative
+generative denoising process into discriminative frameworks by tasks. The diffusion framework was initially proposed by Sohl-
+interpreting N cascaded embedding layers of a backbone as T Dickstein et al. [2015] to iteratively remove Gaussian noise
+recursive denoising steps. This unification allows simultaneous from training images, and it was later popularized by the
+feature extraction and denoising, leading to more discriminative Denoising Diffusion Probabilistic Model (DDPM) Ho et al.
+representations.                                                     [2020], which established diffusion as a mainstream approach
+                                                                     to image synthesis. Beyond their strong generative capacity,
+   (2) The proposed DenoiseRep++ introduces a parameter diffusion models also possess intrinsic denoising ability —
+fusion strategy that merges denoising and embedding layers, through iterative noise estimation and removal, they can
+and theoretically proves their equivalence, resulting in a effectively restore the original data distribution from noisy
+computation-efficient framework with no additional inference observations.
+latency.
+                                                                        Discriminative models, in contrast, focus on learning the
+   (3) We introduce a high-capacity teacher–student distillation conditional probability distribution P (y|x), where x denotes
+framework that employs a more expressive teacher network to input data and y represents task-specific outputs or labels.
+guide the pre-noising module. This improves the accuracy of For instance, classification models Agarap [2017], Albawi
+noise-distribution prediction and enhances the representational et al. [2017], Deng [2012] map inputs to discrete category
+capacity of the denoising backbone without increasing inference labels; retrieval models Lin et al. [2015], Weyand et al. [2020]
+cost.                                                                learn feature spaces in which semantically similar samples lie
+                                                                     close together; and detection models Law and Deng [2018],
+   (4) We introduce two denoising enhancement strategies,
+                                                                     Ren [2015] localize and classify objects by predicting spatial
+namely multi-round single-layer denoising and multi-step de-
+                                                                     positions and bounding boxes.
+noising fusion, which compress multi-step denoising trajectories
+                                                                        A prominent example of a discriminative task is Person Re-
+into fewer effective steps. These methods enhance denoising
+                                                                     Identification (ReID), which seeks to identify the same individ-
+performance and feature separability without increasing com-
+                                                                     ual across non-overlapping camera views. Due to challenges
+putational cost.
+                                                                     such as pose variation, illumination change, and occlusion,
+   (5) Extensive experiments on four ReID datasets demonstrate ReID requires highly discriminative features. Accordingly,
+that DenoiseRep++ improves feature discrimination in a label- we employ ReID as our primary benchmark and use other
+free manner and achieves even greater gains under supervised or tasks as auxiliary validation. Existing ReID techniques can
+augmented training settings. Moreover, we extend our approach generally be categorized into (1) hand-crafted descriptors Liao
+to large-scale (ImageNet), fine-grained (CUB200, Oxford-Pet, et al. [2015], Ma et al. [2014], Yang et al. [2014] combined
+Flowers) classification, object detection (COCO), and image with metric learning Koestinger et al. [2012], Liao and Li
+segmentation (ADE20K) tasks, confirming its robustness and [2015], Zheng et al. [2013], and (2) deep learning–based
+scalability.                                                         approaches Cho et al. [2022], Fu et al. [2021], Ni et al. [2023],
+Wang et al. [2023], Wang et al. [2019, 2020]. Modern ReID representation learning, as it determines the quality and dis-
+systems predominantly adopt convolutional neural networks criminability of the extracted features. In this work, we propose
+(CNNs) LeCun et al. [1998] to model complex spatial rela- a novel framework, termed the Enhanced Denoising Model for
+tionships and hierarchical visual representations. Furthermore, Representation Learning (DenoiseRep++ ), which unifies feature
+attention mechanisms Dosovitskiy et al. [2020], Vaswani et al. extraction and denoising within a single backbone architecture.
+[2017], spatio-temporal reasoning Li et al. [2022, 2020], and By integrating these two processes, DenoiseRep++ aims to
+domain adaptation methods Chen et al. [2018] have further strengthen the discriminative capacity of learned representations
+enhanced their robustness and generalization to real-world while maintaining computational efficiency.
+deployment scenarios.
+                                                                     B. Joint Feature Extraction and Feature Denoising
+   Efficient Diffusion Sampling. One of the central challenges
+of diffusion models is their high computational cost during             We refer to the diffusion modeling approach to denoise the
+inference, as conventional denoising procedures typically            noisy  features through T-steps to obtain clean features. At
+require hundreds or even thousands of iterative steps. To            the  beginning,    we use the features output from the backbone
+mitigate this inefficiency, a series of accelerated sampling         network   as data   samples for diffusion training, and get the noisy
+techniques have been proposed in recent years.                       samples   by   continuously     adding noise and learning through
+   DDPM Ho et al. [2020] established the fundamental it-             the  network    in  order   to simulate   the data distribution of its
+erative denoising framework, which achieves high-quality             features.
+                                                                                                     T
+sample generation but suffers from long inference times. To                                         Y
+improve efficiency, the Denoising Diffusion Implicit Model                        q(x1:T |x0 )   :=     q(xt |xt−1 )                    (1)
+(DDIM) Song et al. [2020] introduced a deterministic, non-                                          t=1
+                                                                                                            p
+Markovian reformulation that maintains visual quality with                        q(xt |xt−1 ) := N (xt ; 1 − βt xt−1 , βt I)           (2)
+significantly fewer sampling steps. Building upon this idea, where X represents the feature vector output by the backbone,
+                                                                               0
+Progressive Distillation Salimans and Ho [2022] iteratively t represents the diffusion step size, β is a set of pre-set
+                                                                                                                     t
+halves the required sampling steps by training a student model parameters, and X represents the noise sample obtained
+                                                                                              t
+to match the output of a teacher that performs two consecutive through diffusion process.
+denoising steps. This effectively compresses a long diffusion           In the inference stage, as shown in Fig. 1(b), we perform T-
+trajectory into fewer steps without significant loss of quality. step denoising on the output features, to obtain cleaner features
+More recently, DPM-Solver Lu et al. [2022] formulated the and improve the expressiveness of the features.
+diffusion process as an ordinary differential equation (ODE)
+                                                                                                            T
+and employed high-order numerical solvers to approximate                                                   Y
+denoising trajectories efficiently, reducing sampling steps to as                  p θ (x 0:T ) := p(x T )     pθ (xt−1 |xt )           (3)
+                                                                                                           t=1
+few as 10–20 without sacrificing fidelity.
+                                                                              pθ (xt−1 |xt ) := N (xt−1 ; µθ (xt , t), Σθ (xt , t))     (4)
+   These advancements collectively reflect the growing focus
+on balancing denoising precision and computational efficiency where Xt represents the feature vector output by the backbone
+in diffusion models. Our work draws inspiration from such in the inference stage. T is the denoising step size, representing
+accelerated sampling strategies—particularly distillation-based the magnitude of the noise. We adjust t appropriately based on
+methods—in designing the step-wise distillation and multi- different datasets and backbones to obtain the optimal denoising
+round denoising mechanisms that enhance DenoiseRep++ under amplitude. According to pθ (xt−1 |xt ) denoise it step by step,
+limited computational budgets.                                       and finally obtains X0 , which represents the clean feature after
+                                                                     denoising.
+  III. DenoiseRep++ : E NHANCED D ENOISING M ODEL FOR
+                 R EPRESENTATION L EARNING                           C. Fuse Feature Extraction and Feature Denoising
+                                                                        As described in Section III-B, the proposed method above
+A. Review Representation Learning                                    could effectively improve the discriminability of features. Still,
+   Representation learning serves as a cornerstone for discrimi- extra inference latency is introduced caused by recursive calling
+native tasks and is formally defined as "the process of learning of the denoising layers. To solve the problem, we propose to
+representations (or features) of data that facilitate the extraction fuse parameters of feature denoising layers into parameters
+of meaningful information for constructing classifiers or other of existing embedding layers of the backbone. The core idea
+predictive models" Bengio et al. [2013]. A typical discrim- is to expand the linear layer each transformer encoder block
+inative framework comprises a vision backbone responsible into two branches, one for its original embedding layer and
+for extracting task-relevant features (e.g., ResNet He et al. the other for extra denoising layer. As shown in Fig. 2, during
+[2016], ViT Dosovitskiy et al. [2020]) and a task-specific head the training phase, we freeze the original embedding layers
+that operates upon these features (e.g., MLP Krizhevsky et al. and only train the denoising layers. The training method is
+[2012] for classification, RCNN Ren [2015] for detection, consistent with section III-B, and the features are diffused and
+or FCN Long et al. [2015] for segmentation). It is thus fed into the denoising layers. Please refer to Algorithm 1 for
+apparent that the vision backbone plays a fundamental role in more details. In the inference stage, we fuse the pre-trained
+Fig. 2. Pipeline of the proposed DenoiseRep++ . The Vision Transformer (ViT) consists of N cascaded transformer encoder layers. During training (right,
+“Train Only”), the backbone parameters are frozen and only the additional denoising layers are optimized. This phase also incorporates T-S (Teacher-Student)
+Distillation and supports a Multi-Step Fusion process for iterative refinement. During inference (left, “Infer Only”), the parameters of denoising layers are
+merged into the corresponding encoder layers, introducing no extra inference latency. Definitions of W , b, WD , W ′ , i, and b′ are provided in Algorithm 2.
+
+
+
+parameters of embedding and denoising layers, merging the two                   obtaining clean features. We split the original single branch
+branches into a single branch without additional inference time.                into a dual branch structure. During the training phase, the
+Please note that, here we take the transformer architecture as an               backbone maintains its original parameters and needs to train
+example, but DenoiseRep++ is suitable for CNN architecture.                     the denoising module parameters. In the inference stage, as
+We demonstrate its scalibity on CNN in experiments. The                         shown on the left side of Fig. 2, we use the method of
+derivation of parameter merging is as follows:                                  reparameterization, to replace the original W parameter with
+                 1       1 − at                                                 W ′ , where W ′ = [W − C1 (t)W WD ] in Eq. (7), which has
+         Xt−1 = √ (Xt − √         Dθ (Xt , t)) + σt z                    (5)    the same number of parameters as W , thus achieving the
+                 at       1 − a¯t
+                                                                                combination of F C operation and denoising without additional
+where at = 1 − βt , Dθ are the parameters of the prediction                     time cost. It is a Computation-free method.
+noise network.                                                                     In Eq. (7), we achieve one-step denoising Yt → Yt−1 . If
+                     Y = WX + b                                                 we need to increase the denoising amplitude, we can extend
+          1                  1 − at                                             it to two-step or multi-step denoising. The following is the
+        √ Xt − Xt−1 = √ √              Dθ Xt − σt z                             derivation formula for two-step denoising:
+          at                at 1 − a¯t                   (6)
+           1                 1 − at                                                              1
+         √ Yt − Yt−1 = √ √             Dθ Yt − σt z                                             √ Yt − Yt−1 = C1 (t)Dθ Yt − σt z                         (8)
+            at              at 1 − a¯t                                                           at
+We make a simple transformation of Eq. (5) and multiply both
+                                                                                            1
+sides simultaneously by W . The simplified equation can be                             √        Yt−1 − Yt−2 = C1 (t − 1)Dθ Yt−1 − σt−1 z                 (9)
+obtained by bringing Yt in terms of W Xt + b:                                              at−1
+
+        Yt−1 = [W − C1 (t)W WD ]Xt + W C2 (t)C3 + b                             We can obtain this by eliminating Yt−1 from Eq.(8) and Eq.(9)
+                                1 − at                                          and replacing Yt with W Xt + b:
+                    C1 (t) = √ √
+                               at 1 − a¯t                                                    Yt−2 = W ′′ Xt + C ′′
+                                                                         (7)
+                             1 − at−1
+                                   ¯
+                    C2 (t) =          βt                                                          (
+                              1 − a¯t                                                ′′    1         W                    
+                       C3 = Z ∼ N (0, I)
+                                                                                    W =p            √ − C1 (t) + C1 (t − 1) W WD
+                                                                                         (at − 1)     at
+                                                                                                                    )
+where WD denotes the parameters of Dθ (Xt , t), Xt denotes                               √
+the input of this linear layer, Yt denotes the output of this                           + at C1 (t − 1)C1 (t)W WD WD ,
+linear layer, and Yt−1 denotes the result after denoising in one
+step of Yt . Due to the cascading relationship of blocks, as                                       1  h           √
+detailed in Algorithm. 2, different t values are set according                       C ′′ = p          W C2 (t) + at W C2 (t − 1)
+                                                                                             (at − 1)
+to the order between levels, and the one-step denoising of                                   √                       i
+one layer is combined to achieve the denoising process of                                   − at C1 (t − 1)C2 (t)W WD Z + b.
+Yt → Y0 , ensuring the continuity of denoising and ultimately                                                                                          (10)
+Algorithm 1 Training
+Input: The number of feature layers in the backbone N,
+    features extracted from each layer {Fi }N
+                                            i=1 , the denoising
+    module that needs to be trained {Di (·)}Ni=1 .
+ 1: repeat
+ 2:     for each i ∈ [N, 1] do
+ 3:         t = i: Specify the diffusion step t for the current
+    layer based on the order of layers.
+ 4:         ϵ ∼ N√ (0, I): Randomly
+                             √       sample a Gaussian noise.
+ 5:         Xt = a¯t Fi + 1 − a¯t ϵ: Forward diffusion pro-
+    cess in Eq.(2).
+                                                              2
+ 6:         Take gradient descent step on ∇θ ∥ϵ − Di (Xt , t)∥
+ 7:     end for
+ 8: until converged
+
+
+
+Note that a single module completes two steps of denoising. Fig. 3. Illustration of the teacher–student denoising layer distillation framework.
+To ensure the continuity of denoising, the t value should be During training, a strong teacher network supervises the student denoising
+                                                                     module through feature-level distillation. The trained student is then fused
+sequentially reduced by 2.                                           with the backbone for computation-free inference, producing clean and
+                                  ++
+   Our proposed DenoiseRep             is based on feature-level discriminative features.
+denoising and can be migrated to various downstream tasks. It
+denoises the features on each layer for better removal of noise Algorithm 3 Teacher–Student Distillation Training
+at each stage, as the noise in the inference stage comes from Input: Features {Fi }N                                            S
+                                                                                               i=1 , student denoiser {Di (·)}, teacher
+multiple sources, which could be noise in the input image or                            T
+                                                                          denoiser {Di (·)}.
+noise generated while passing through the network. Denoising           1: repeat
+each layer avoids noise accumulation and gives better quality          2:     for each i ∈ [N, 1] do
+output. And according to the noise challenges brought by data          3:          t = i; √
+                                                                                          sample noise√ ϵ ∼ N (0, I)
+in different scenarios, the denoising intensity can be adjusted        4:          Xt = a¯t Fi + 1 − a¯t ϵ
+by controlling t, βt , and the number of denoising times, which        5:          Teacher prediction: ϵ̂T = DiT (Xt , t)
+has good generalization ability.                                       6:          Student prediction: ϵ̂S = DiS (Xt , t)
+                                                                       7:          Update student by minimizing Ldistill in Eq. (11)
+Algorithm 2 Inference                                                  8:     end for
+Input: The number of feature layers in the backbone N,                 9: until converged
+     features extracted from each layer {Fi }N i=1 , trained denois-
+     ing module parameters {WDi }N      i=1 in Algorithm(1), after
+     obtaining the initial feature F N through patch_embed, it is effectiveness. As illustrated in Fig. 3, we address this limitation
+     necessary to remove N-step noise from it, the pre-trained by adopting a teacher–student distillation framework during
+     parameters {Wi }N                N
+                        i=1 and {bi }i=1 for the backbone.           training.
+                      0
+Output: Feature F after denoising.                                      In particular, we construct a more expressive teacher network
+  1: for each i ∈ [N, 1] do
+                                                                     that serves as a strong denoiser. Given the same noisy
+  2:     t = i: Set the denoising amplitude based on the depth feature X at diffusion step t, the teacher network outputs
+                                                                                 t
+     of the current layer.                                           a noise prediction   ϵ̂T (Xt , t), while the student network outputs
+  3:     W ′ = [Wi − C1 (t)Wi WDi ], b′ = Wi C2 (t)C3 + bi : ϵ̂ (X , t). We treat the teacher’s prediction as a soft label and
+                                                                      S    t
+     Parameter fusion according to Eq.(7).                           train the student to regress toward it using an L2 objective:
+  4:     F t−1 = W ′ F t + b′ : Fuse feature extraction and feature
+     denoising.                                                                                                                2
+  5: end for
+                                                                                    Ldistill = ∥ϵ̂S (Xt , t) − ϵ̂T (Xt , t)∥2 .              (11)
+               0
+  6: return F
+                                                                        The final training objective is a weighted sum of the original
+                                                                     denoising loss and the distillation loss:
+D. Teacher–Student Distillation for Denoising Module
+                                                                                          Ltotal = λp Ldenoise + λd Ldistill ,              (12)
+   As discussed in previous sections, the denoising module
+is designed to be lightweight in order to support parameter              where λp and λd are balancing coefficients.
+fusion with backbone layers at inference time. However, such a             By leveraging the teacher’s stronger representational capacity,
+compact architecture inevitably limits its capacity to accurately        the student denoising module is able to more accurately
+predict noise distributions, leading to sub-optimal denoising            approximate noise distributions. Importantly, this additional cost
+is only incurred during training, while the inference procedure        Algorithm 4 Multi-step Denoising Fusion
+remains efficient and computation-free.                                Input: Training samples x, diffusion step t, noise schedule
+                                                                           {βt }, teacher denoiser DT , student denoiser DS
+E. Enhanced Denoising under Limited Layers                             Output: Fused student model capable of multi-step denoising
+   Although DenoiseRep++ fuses denoising with feature extrac-              in one step
+tion, its denoising strength is inherently bounded by the number        1: Stage 1: Teacher Training
+of available layers. To address this challenge, we introduce two        2: for each minibatch x do
+complementary techniques: multi-round single-layer denoising            3:     Sample noise ϵ ∼ N (0, I)√          √
+and step-wise distillation.                                             4:     Diffuse clean input: zt = āt x + 1 − āt ϵ
+   Multi-round single-layer denoising. Instead of relying               5:     Teacher predicts noise ϵ̂T = DT (zt , t)
+solely on the depth of the network, we allow a single denoising         6:     Update teacher using loss Lθ = ∥ϵ − ϵ̂T ∥22
+layer to be applied iteratively across multiple rounds. This            7: end for
+simulates a deeper denoising trajectory without introducing             8: Stage 2: Teacher Multi-Step Denoising (DDIM-style Skip
+additional parameters. The basic one-step denoising update is              Sampling)
+defined as:                                                             9: for each training step do
+                  1          1 − at                                  10:     Teacher multi-step update zt → zt−k → x̂, where
+      Xt−1 = √         Xt − √           ϵθ (Xt , t) + δt z,       (13)
+                  at            1 − a¯t                                    k ≥ 2 is the skip interval
+                                                                       11: end for
+where ϵθ (Xt , t) is the noise predicted by the denoiser, and δt z
+                                                                       12: Stage 3: Student One-Step Prediction
+is the Gaussian perturbation.
+                                                                       13: for each minibatch do
+   Assuming a linear layer Gθ (Xt , t) = W Xt + b, Eq. (13)
+                                                                       14:     Student predicts one-step result x̂S = DS (zt , t)
+can be rewritten as:
+                                                                       15:     Compute fusion loss Lf usion = w(λt )∥x̂ − x̂S ∥22
+              √    
+                          1−a
+                                     
+                                             1−a
+     Xt−1 = at I − √1−a¯ W Xt − √1−a¯ b + δt z.
+                              t                    t
+                                                                  (14) 16:     Update student parameters using Lf usion
+                                t                    t
+                                                                       17: end for
+                    √
+   Defining At = at (I − √1−a       t
+                                 1−a¯t
+                                       W ) and Ct = − √1−a   t
+                                                          1−a¯t
+                                                                b, the 18: Return fully trained student model capable of approximat-
+recursion simplifies to:                                                   ing multi-step denoising in a single step
+                  Xt−1 = At Xt + Ct + δt z.                 (15)
+ By applying Eq. (15) recursively for k steps, we obtain the           Once a strong teacher model is obtained, we employ a DDIM-
+multi-round denoising result:                                       style skip sampling rule, where the teacher predicts over two
+             Xt−k = At−1 At−2 · · · At−k Xt                         (or more) steps, and the student learns to approximate the same
+                      k−1    k
+                                                                    result in a single step. The corresponding distillation loss is:
+                      X Y              
+                    +               At−i Ct−j                                      Lfusion
+                                                                                                                         2
+                                                                                           = w(λt ) ∥x̂ − x̂θ (zt , t)∥2 ,       (20)
+                                                                                    θ
+                           j=0   i=j+1                      (16)
+                           k−1
+                           X     k
+                                  Y                                where x̂ is the denoised output predicted by the teacher after
+                       +                 At−i δt−j z.               multiple steps, x̂θ (zt , t) is the student’s one-step prediction,
+                           j=0   i=j+1                              and w(λt ) is a weighting function.
+   Finally, the feature output after fusion with the linear layer     This formulation enables the student to perform multi-step
+is expressed as:                                                    denoising in a single pass, effectively fusing multiple denoising
+                                                                   operations into one. The distillation process progressively com-
+               Y0 = WL At Xt + Ct + δt z + bL ,              (17)   presses longer trajectories into fewer steps, while maintaining
+                                                                    denoising effectiveness.
+which can be abstracted as a fusion operation
+               Y0 = ffusion (Xt , t, WL , bL , W, b).       (18)    F. Unsupervised Learning Manner
+                                                                       Our proposed DenoiseRep++ is label-free because its essence
+   Multi-step denoising fusion. In addition to the recursive
+                                                                    is a generative model that models data by learning its distri-
+multi-round strategy, we further adopt a multi-step fusion
+                                                                    bution. Thus the training loss contains only the Lossp of
+scheme inspired by progressive distillation in diffusion models.
+                                                                    denoising layers:
+The key idea is to replace multiple small denoising steps with
+a single larger step, while transferring the supervision from a                                N
+                                                                                               X
+pre-trained teacher network.                                                        Lossp =          |ϵi − Dθi (Xti , ti )|      (21)
+   The standard denoising training objective for the teacher is:                               i=1
+
+                                            2                       where ϵ denotes the sampled noise, N denotes the number of
+                    Lθ = ∥ϵ − ϵ̂θ (zt , t)∥2 ,              (19)
+                                                                    denoising layers, Xt denotes the noise sample, t denotes the
+where ϵ denotes the sampled Gaussian noise, zt is the noisy         diffusion step, and Dθ (Xt , t) denotes the noise predicted by
+input at step t, and ϵ̂θ is the teacher’s noise prediction.         the denoising layer.
+   However, it is worth noting that our method is complemen-             (2) Could introducing label information for supervised train-
+tary to label if the label is available. Lossl is the task-specific   ing further improve performance? Introducing label information
+supervised loss with label, λ is the trade-off parameter between      is actually adding Lossl as mentioned in Section III-F as a
+two losses. The label-argumented learning is defined as:              supervised signal. As shown in Table II (line3), baseline method
+                                                                      with label-argumented DenoiseRep++ achieve improvements of
+               Loss = (1 − λ)Lossl + λLossp                   (22)    0.32% - 0.70% on the mAP metric, indicating that our denoising
+                                                                      plugin has label compatibility, in other words, the plug-in is
+Results in experiments Section IV-B shows the improvement             effective for feature denoising regardless of label-argumented
+from label.                                                           supervised or lable-free unsupervised training.
+                                                                         (3) Since our plugin can perform unsupervised denoising of
+                      IV. E XPERIMENTS                                features, it is natural to think about whether adding more data
+   Our proposed DenoiseRep++ is a versatile method that can           for training the plugin could further improve its performance?
+be incrementally applied to various discriminative tasks. Table       We merge four datasets for training and then test on each dataset
+I demonstrates that DenoiseRep++ yields stable and substantial        using mAP to evaluate. Comparing the results of training on
+improvements across image classification, object detection,           sigle dataset (line2) with on merged datasets (line4), we found
+image segmentation, and person re-identification. Given that          that adopting other datasets for unsupervised learning can
+person re-identification is a nuanced image retrieval task that       further improve the performance of DenoiseRep++ , which also
+poses a greater challenge to feature discriminability, we take        proves that DenoiseRep++ has good generalization ability.
+it as our benchmark for model analysis.                                  To demonstrate that our method can perform unsupervised
+A. Experimental settings                                              learning and has good generalization, we merged four datasets
+                                                                      and rearranged the sequence IDs to ensure the reliability of the
+   Datasets and Evaluation metrics. We conduct training and
+                                                                      experiment. The model is tested on the entire dataset. During
+evaluation on four datasets: DukeMTMC-reID Zheng et al.
+                                                                      the training process, we freeze the baseline parameters and
+[2017], Market-1501 Zheng et al. [2015], MSMT17 Wei et al.
+                                                                      only train the DenoiseRep++ module, without the need for
+[2018], and CUHK-03 Li et al. [2014]. These datasets encom-
+                                                                      labels, for unsupervised learning. Then test on a single dataset
+pass a wide range of scenarios for person re-identification. For
+                                                                      and compare the results of training on a single dataset. As
+accuracy, we use standard metrics including Rank-1 curves
+                                                                      shown in Table II, it can be observed that adding unlabeled
+(The probability that the image with the highest confidence
+                                                                      training data from different datasets can improve the model’s
+in the search results is the correct result.) and mean average
+                                                                      performance on a single dataset, proving that this module has
+precision (MAP). All the results are from a single query setting.
+                                                                      a certain degree of generalization.
+   Implementation Details. We implement our method using
+Python on a server equipped with a 2.10GHz Intel Core Xeon
+(R) Gold 5218R processor and two NVIDIA RTX 3090 GPUs. C. Comparison with State-of-the-Art ReID Methods
+The epochs we trained are set to 120, the learning rate is set       We compare several state-of-the-art ReID methods on four
+to 0.0004, the batch size during training is 64, the inference datasets. One of the best performing comparison methods is
+stage is 256, and the diffusion step size t is set to 1000.       TransReID-SSL, which is a series of ReID methods based on
+   Training and evaluation. To better constrain the perfor- the ViT backbones. Other methods are based on structures such
+mance of the denoised features of the DenoiseRep++ for as CNNs. We add our method to TransReID-SSL series and
+downstream tasks, we employ alternating fine-tune methods. observe their performance. As shown in Table III, we have the
+The parameters of the DenoiseRep++ and baseline are trained following findings:
+alternately, and when training a part of the parameters, the rest    (1) Our method stands out on four datasets on ViT-base
+of the parameters are frozen and fine-tuned for 10 epochs at a backbone with a large number of parameters, achieving almost
+time, with a total number of epochs of 120. When evaluating, the best performance on two evaluation metrics.
+we average the results of the experiments under the same             (2) The methods using our plugin outperforms the original
+settings for 5 times, thus ensuring the reliability of the data.  methods with the same backbone on all datasets. In addition,
+                                                                  the performance improvement of small-scale backbones with
+B. Analysis of Label Informations
+                                                                  the addition of DenoiseRep++ is more significant than the large-
+                                                  ++
+   As mentioned in Section III-C, DenoiseRep is an unsu- scale backbones approach due to the fact that DenoiseRep++
+pervised denoising module, and its training does not require is essentially a denoising module that removes the noise
+the assistance of label information. We conducte the following contained in the features during the inference stage. For large-
+experiments to identify three key issues.                         scale backbones, the extracted features already have good
+   (1) Is this label-free and unsupervised training denoising performance, so the denoising amplitude is limited. It has
+plugin effective? As shown in Table II (line2), compared with already fitted the dataset well. For small-scale backbones with
+baseline method (line1), the baseline method performs better poor performance, due to their limited fitting ability, there is
+after adding our label-free plugin, which shows that our method a certain amount of noise in the extracted features during the
+does have denoising capability for features.                      inference stage. Denoising them can obtain better feedback.
+                                                                 TABLE I
+                                          E XPERIMENTAL RESULTS ON VARIOUS DISCRIMINATIVE TASKS .
+
+              Task                         Model                 Backbone           Dataset    Metric   Baseline    +DenoiseRep++
+              Classification       SwinT Liu et al. [2021]       SwinV2-T        ImageNet-1k   acc@1    81.82%         82.13%
+              Person-ReID      TransReID-SSL Luo et al. [2021]     ViT-S          MSMT17        mAP     66.30%         67.33%
+              Detection          Mask-RCNN He et al. [2017]       Swin-T            COCO         AP     42.80%         44.30%
+              Segmentation         FCN Long et al. [2015]        ResNet-50         ADE20K       BIoU    28.70%         29.90%
+
+
+                                                                   TABLE II
+ DenoiseRep++ IS A LABEL - FREE METHOD THAT CAN ALSO BE EFFECTIVELY COMPLEMENTED WITH LABELS WHEN THEY ARE AVAILABLE . T HE TABLE
+    BELOW ANALYZES THE EFFECTIVENESS OF USING LABELS . T HE BASELINE METHOD , T RANS R E ID-SSL, IS BASED ON A V I T- SMALL BACKBONE .
+"L ABEL - FREE " INDICATES TRAINING WITHOUT LABELS , " LABEL - AUGMENTED " REFERS TO THE USE OF LABELS , AND " MERGED DATASET " DENOTES THE
+                                               USE OF COMBINED DATASETS WITHOUT LABELS .
+
+
+                        Method                        DukeMTMC(%)        MSMT17(%)         Market1501(%)    CUHK-03(%)
+                        TransReID-SSL                      81.20             66.30             91.20            83.50
+                        +DenoiseRep++ (label-free)     81.72 (↑ 0.52)    66.87 (↑ 0.57)    91.82 (↑ 0.62)   83.72 (↑ 0.22)
+                        +DenoiseRep++ (label-aug)      82.12 (↑ 0.92)    67.33 (↑ 1.03)    92.05 (↑ 0.85)   84.11 (↑ 0.61)
+                        +DenoiseRep++ (merged ds)      81.78 (↑ 0.58)    66.99 (↑ 0.69)    91.80 (↑ 0.60)   83.86 (↑ 0.36)
+
+
+
+                                                                TABLE III
+                                             C OMPARISON WITH STATE - OF - THE - ART R E ID METHODS .
+
+
+                                                                  MSMT17             Market1501     DukeMTMC         CUHK03-L
+               Method                            Backbone
+                                                                 mAP   R1           mAP      R1     mAP   R1        mAP    R1
+               MGN Wang et al. [2018]            ResNet-50         –       –       86.90   95.70   78.40    88.70   67.40    68.00
+               OSNet Zhou et al. [2019a]         OSNet           52.90   78.70     84.90   94.80   73.50    88.60     –        –
+               BAT-net Fang et al. [2019]        GoogLeNet       56.80   79.50     87.40   95.10   77.30    87.70   76.10    78.60
+               ABD-Net Chen et al. [2019]        ResNet-50       60.80   82.30     88.30   95.60   78.60    89.00     –        –
+               RGA-SC Zhang et al. [2020b]       ResNet-50       57.50   80.30     88.40   96.10     –        –     77.40    81.10
+               ISP Zhu et al. [2020]             HRNet-W32         –       –       88.60   95.30   80.00    89.60   74.10    76.50
+               CDNet Li et al. [2021]            CDNet           54.70   78.90     86.00   95.10   76.80    88.60     –        –
+               Nformer Wang et al. [2022]        ResNet-50       59.80   77.30     91.10   94.70   83.50    89.40   78.00    77.20
+               TransReID He et al. [2021]        ViT-base-ics    67.70   85.30     89.00   95.10   82.20    90.70   84.10    86.40
+               TransReID                         ViT-base        61.80   81.80     87.10   94.60   79.60    89.00   82.30    84.60
+               TransReID-SSL Luo et al. [2021]   ViT-small       66.30   84.80     91.20   95.80   81.20    87.80   83.50    85.90
+               TransReID-SSL                     ViT-base        75.00   89.50     93.10   96.52   84.10    92.60   87.80    89.20
+               CLIP-REID Li et al. [2023]        ViT-base        75.80   89.70     90.50   95.40   83.10    90.80     –        –
+               TransReID + DenoiseRep++          ViT-base-ics    68.10   85.72     89.56   95.50   82.35    90.87   84.15    86.39
+               TransReID + DenoiseRep++          ViT-base        62.23   82.02     87.25   94.63   80.12    89.33   82.44    84.61
+               TransReID-SSL + DenoiseRep++      ViT-small       67.33   85.50     92.05   96.68   82.12    88.72   84.11    86.47
+               TransReID-SSL + DenoiseRep++      ViT-base        75.35   89.62     93.26   96.55   84.31    92.90   88.08    89.29
+               CLIP-REID + DenoiseRep++          ViT-base        76.30   90.60     91.10   95.80   83.70    91.60     –        –
+
+
+
+   (3) In fact, our method can be applied to any other backbone,          D. Analysis of Parameter Fusion
+just add it to each layer. In particular, the performance
+                                                                    The proposed DenoiseRep++ is computation-free. In sec-
+improvement of adding the denoising plugin to a poorly
+                                                                 tion III-C, we proved by theoretical derivation that inserting
+performing backbone might be more significant. This needs
+                                                                 our denoising layer into each feature layer and fusion it does
+to be further verified in subsequent work. However, it is
+                                                                 not introduce additional computation. In this section, we also
+undeniable that we have verified the denoising ability of the
+                                                                 conduct related validation experiments, the results of which
+DenoiseRep++ in the currently optimal ReID method.
+                                                                 are shown in Table IV.
+                                                                    Compare to the baseline method TransReID-SSL, adding
+                                                                 DenoiseRep− is able to improve the the performance, proving
+   In this section, a comparative analysis was conducted on that feature based denoising is effective. However, it also brings
+four datasets to assess various existing ReID methods. These extra inference latency (about 15%) because it is adding an
+methods represent current mainstream ReID approaches, em- extra parameter-independent denoising Distillation Modulet the
+ploying ResNet101, ViT-S, ViT-B, and ResNet50 as backbone end of the model.
+architectures for feature extraction, respectively. Experimental    Adopting DenoiseRep achieves a greater increase, it denoise
+results indicate that our proposed method outperforms other the features on each layer, which can better remove noise at
+approaches in terms of both mAP and Rank-1 metrics.              each stage because the noise in the inference stage comes from
+                              TABLE IV                                    Per-task observations. The absolute gains are modest but
+PARAMETER F USION P ERFORMANCE A NALYSIS . T RANS R E ID-SSL SERVES   consistent: classification shows small yet reliable improve-
+  AS THE BASELINE (V I T- SMALL BACKBONE ). DenoiseRep− PERFORMS
+   DENOISING ONLY ON THE FINAL LAYER , WHILE DenoiseRep APPLIES       ment, whereas the retrieval and dense prediction tasks (ReID,
+                     DENOISING TO ALL LAYERS .                        detection, segmentation) obtain larger relative gains. This
+                                                                      pattern suggests that distillation primarily benefits tasks that
+       Dataset          Baseline  +DenoiseRep−     +DenoiseRep        require fine-grained, localized feature refinement: in ReID
+       DukeMTMC         81.20%        81.56%          82.12%          the model must disambiguate subtle identity cues, while
+       MSMT17           66.30%        66.81%          67.33%          detection/segmentation require accurate local features and
+       Market1501       91.20%        91.07%          92.05%          boundaries.
+       CUHK-03          83.50%        83.59%          84.11%
+                                                                          Why distillation helps. The teacher network—being more
+       Inference Time    0.34s     0.39s (+15%)     0.34s (+0%)
+                                                                      expressive—learns a more accurate mapping from noisy
+                                                                      features to the underlying clean signals (or noise residuals). By
+                                                                      forcing the lightweight student (pre-denoiser) to regress to the
+multiple aspects, which may be the noise in the input image or
+                                                                      teacher’s predictions via an L2 loss, the student inherits the
+generated when passing through the network. Denoising each
+                                                                      teacher’s inductive bias for noise structure without increasing
+layer avoids noise accumulation and obtains a better quality
+                                                                      inference cost. Concretely, this reduces the bias in the student’s
+output. Most importantly, since the operation of fusion can
+                                                                      noise estimates, which (1) lowers residual noise after denoising,
+merge the parameters of the denoising module with the original
+                                                                      (2) tightens intra-class feature clusters and (3) improves inter-
+parameters, the adoption of DenoiseRep does not take extra
+                                                                      class separability. Empirically, we also observed (training logs
+inference latency cost, which is a computation-free efficient
+                                                                      / intermediate metrics) that student networks trained with
+approach.
+                                                                      distillation converge faster and yield smoother loss curves
+E. Experiments on Classification Tasks                                than students trained without distillation.
+                      ++
+    The DenoiseRep is based on denoising at the feature level             Implementation and hyperparameter notes. In practice,
+and demonstrates strong generalization capabilities. To validate      we   balance the denoising loss and distillation loss with a weight
+this generalization ability, we conduct experiments on other          λ d  (see Eq. (12)). We found the trade-off to be important: a
+vision tasks to test the effectiveness of the DenoiseRep .         ++ very   large λd causes the student to overfit teacher-specific
+We validate the generalization ability of DenoiseRep in         ++    idiosyncrasies    (reducing generalization), while a very small
+image classification tasks on ImageNet-1k Deng et al. [2009]          λ d  under-utilizes  the teacher signal. We recommend tuning λd
+datasets and three fine-grained image classification datasets         on   a validation  split; moderate values typically work best. All
+(CUB200 Wah et al. [2011], Oxford-Pet Parkhi et al. [2012],           reported   numbers     are averaged over multiple runs to reduce
+and Flowers Nilsback and Zisserman [2008]). The accuracy              variance.
+index is chosen as the evaluation metric to assess model
+                                                                      G. Effect of Multi denoising Fusion
+performance.
+    As shown in Table V, we compare multiple classic backbones            We next evaluate Fusion Module, which jointly incorporates
+for representation learning on ImageNet-1k, and after adding multi-round denoising and multi-step denoising fusion. Table VI
+the DenoiseRep++ , the accuracy of both top-1 and top-5 metrics (“+ Fusion Module”) shows that Fusion Module by itself yields
+improve without adding model parameters. Our method shows consistent improvements over the baseline: ImageNet-1k Top-1
+significant improvement in accuracy metrics compared to increases to 82.01%, MSMT17 mAP to 67.05%, COCO AP
+baseline on three fine-grained classification datasets. Prove that to 43.85%, and ADE20K B-IoU to 29.50%.
+the DenoiseRep++ can improve the model’s ability in image                 Per-task observations. Fusion Module tends to deliver larger
+classification for different classification tasks. Additionally, our improvements on tasks sensitive to noise accumulation and
+method proves to enhance the model’s representation learning stage-wise feature corruption, e.g., Person-ReID and object
+ability and extract more effective features through denoising detection. For ReID, multi-round denoising (or fusing several
+without incurring additional time costs.                              denoising steps into an equivalent single-step operator) reduces
+                                                                      intermediate noise accumulation across layers, producing more
+F. Effect of Teacher–Student Distillation                             discriminative final features. For detection/segmentation, the
+    We first isolate the contribution of the teacher–student dis- improvement is reflected in better localization scores (AP50
+tillation module (Distillation Module). Quantitative results are / AP75 ) and boundary IoU, indicating improved local feature
+summarized in Table VI (“+ Distillation Module”). Introducing fidelity.
+Distillation Module yields consistent improvements over the               Why multi denoising fusion helps. When the number of
+baseline across all evaluated tasks. Concretely, on ImageNet-1k explicit denoising layers is limited, directly stacking more
+(SwinV2-T) Top-1 accuracy increases from 81.82% to 81.95%; layers is not always feasible (or it breaks the inference
+on MSMT17 (ViT-S) mAP increases from 66.30% to 66.85%; fusion requirement). Fusion Module simulates deeper denoising
+on COCO (Mask-RCNN, Swin-T) AP increases from 42.80% by reusing a single denoiser multiple times (multi-round)
+to 43.60%; and on ADE20K (FCN, ResNet-50) B-IoU improves and by distilling multi-step teacher predictions into one-step
+from 28.70% to 29.20%.                                                student predictions (multi-step fusion). Mathematically (see
+                                                               TABLE V
+T HE EFFECTIVENESS OF OUR METHOD IN IMAGE CLASSIFICATION TASKS WAS VALIDATED ON THREE FINE - GRAINED CLASSIFICATION DATASETS (CUB200,
+                                              OXFORD -P ET, F LOWERS ) AND I MAGE N ET-1 K .
+
+
+                                                                                     acc@1                       acc@5
+               Method                             Datasets     Param
+                                                                          Baseline    +DenoiseRep++   Baseline    +DenoiseRep++
+               SwinV2-T Liu et al. [2021]        ImageNet-1k   28M        81.82%         82.13%       95.88%         96.06%
+               Vmanba-T Liu et al. [2024]        ImageNet-1k   30M        82.38%         82.51%       95.80%         95.89%
+               ResNet50 He et al. [2016]         ImageNet-1k   26M        76.13%         76.28%       92.86%         92.95%
+               ViT-B Dosovitskiy et al. [2020]     CUB200      87M        91.78%         91.99%          –              –
+               ViT-B                              Oxford-Pet   87M        94.37%         94.58%          –              –
+               ViT-B                               Flowers     87M        99.12%         99.30%          –              –
+
+
+                                                               TABLE VI
+ A BLATION STUDY ON MULTIPLE DISCRIMINATIVE TASKS . W E REPORT TASK - SPECIFIC METRICS UNDER FOUR SETTINGS : BASELINE , BASELINE + DM
+    (T EACHER –S TUDENT D ISTILLATION M ODULE ), BASELINE + FM (M ULTI DENOISING F USION M ODULE ), AND BASELINE + BOTH MODULES (+
+                                                             DenoiseRep++ ).
+
+
+              Task                                             Baseline     + DenoiseRep     + DM      + FM       + DenoiseRep++
+              Classification (ImageNet-1k, SwinV2-T, acc@1)    81.82%          82.13%        82.19%   82.21%         82.30%
+              Person-ReID (MSMT17, ViT-S, mAP)                 66.30%          67.33%        67.45%   67.61%         67.73%
+              Detection (COCO, Mask-RCNN Swin-T, AP)           42.80%          44.30%        44.30%   44.50%         44.70%
+              Segmentation (ADE20K, FCN ResNet-50, BIoU)       34.10%          34.80%        34.90%   35.50%         35.00%
+
+
+
+Eq. (16)), repeated affine transformations with appropriately             larger inter-class margins compared to baseline measures
+chosen coefficients amplify denoising amplitude while the                 (visualized with t-SNE / UMAP); (2) training dynamics:
+reparameterization allows merging the effect into existing linear         models with Distillation Module exhibit reduced variance
+layers. The net effect is stronger removal of layer-wise noise            in the denoising loss and faster early convergence; (3) per-
+without extra inference computations.                                     layer residuals: after applying multi-round fusion, per-layer
+   Practical findings and trade-offs. Increasing the number               noise residual norms are lower, confirming improved denoising
+of simulated rounds K generally yields diminishing returns:               efficacy.
+the first extra round often delivers the largest marginal gain;              Guidelines for practitioners. Based on our ablations:
+further rounds provide smaller improvements while increasing                 • Use Distillation Module (teacher–student distillation)
+training complexity. We therefore recommend using a small                      when a stronger teacher is available; it is especially useful
+K (e.g., 1–3 simulated rounds) and employing step-wise                          if the pre-denoiser must remain lightweight for inference
+distillation (Eq. (16)) to stabilize training. In our experiments,              fusion.
+Fusion Module improves robustness to input corruptions (tested               • Use Fusion Module (multi denoising fusion) when the
+qualitatively), and its gains are complementary to those of                     backbone has few denoising slots or when noise accumu-
+Distillation Module.                                                            lates across layers; set the simulated rounds conservatively
+                                                                               (1–3) and apply step-wise distillation to stabilize training.
+H. Complementarity and Full Model                                            • Combine both modules for the best overall performance;
+   Combining Distillation Module and Fusion Module (+                           tune the distillation weight and the number of rounds on
+DenoiseRep++ ) consistently yields the best performance across                  a small validation set.
+all tasks in Table VI. For example, the DenoiseRep++ achieves                In summary, the ablation results demonstrate that the two
+82.30% Top-1 on ImageNet-1k, 67.33% mAP on MSMT17,                        modules are both effective and complementary. Specifically,
+44.70% AP on COCO, and 35.00% B-IoU on ADE20K. The                        the Distillation Module improves the prediction quality of
+combined improvement is larger than either single-Distillation            the denoiser, while the Fusion Module enhances denoising
+Module in every evaluated task, which indicates that Distillation         strength under architectural constraints. When combined, they
+Module and Fusion Module address complementary aspects                    yield the strongest feature representations across a wide range
+of the denoising problem: Distillation Module improves the                of discriminative vision tasks.
+student’s per-step noise prediction quality, while Fusion Module
+increases effective denoising strength (step amplitude) under             I. Experiment on Vehicle Identification
+limited layer budgets.                                                       In the image retrieval task, we also conduct experiments to
+   Additional diagnostics. To further support these conclusions           verify the effectiveness of our method on the vehicle recognition
+we ran auxiliary analyses: (1) feature clustering: embeddings             task. Vehicle recognition in practical scenarios often results in
+from the DenoiseRep++ show tighter intra-class clusters and               images containing a large amount of noise due to environmental
+factors such as lighting or occlusion, which increases the         image segmentation, particularly in computer vision tasks. It
+difficulty of detection. Our method is based on denoising to       contains 80 types of objects, such as people, animals, daily
+obtain features with better representation ability. Therefore, we  necessities, etc., covering various common items in daily
+want to experimentally verify whether the DenoiseRep plays         life. To verify that our method is model independent, we
+a role in vehicle recognition tasks with higher noise levels.      conduct experiments using different models including Mask-
+We select vehicleID Liu et al. [2016] as the dataset, vehicle-     RCNN He et al. [2017], Faster-RCNN Ren [2015], ATSS Zhang
+ReID Chu et al. [2019] as the baseline, and ResNet-50 as the       et al. [2020a], YOLO Redmon [2018], DETR Carion et al.
+feature extractor for the experiment.                              [2020] and CenterNet Zhou et al. [2019b], as well as diverse
+                                                                   backbones. To evaluate the effectiveness of our method, we
+                            TABLE VII                              used standard metrics including AP, AP50 , and AP75 , which
+T HE PERFORMANCE OF THE DenoiseRep ON VEHICLE RECOGNITION TASKS . are commonly used metrics in object detection tasks to evaluate
+                                                                   model performance, particularly for evaluating the effectiveness
+      Method          Backbone    Datasets     mAP    Rank-1       of bounding box detection. It is also an important part of
+      vehicle-ReID   ResNet-50   VehicleID    76.4%   69.1%        the COCO dataset evaluation criteria, which can measure the
+      + DenoiseRep   ResNet-50   VehicleID    77.3%   70.2%        detection ability of the model in multiple categories and scales.
+                                                                      As shown in Table IX, we compare multiple classic backbone
+   From the results in Table VII, it can be seen that DenoiseRep   networks  across different methods. After adding DenoiseRep++ ,
+demonstrates excellent performance in vehicle detection tasks. the accuracy index shows improvement without the need for
+Compared to the baseline, adding the DenoiseRep significantly additional model parameters. This indicates that our method
+improves both mAP and Rank-1 metrics without incurring enhances the representation learning capability of the model
+additional detection time costs. It verifies the denoising ability and extracts more effective features through denoising, all while
+of the DenoiseRep in noisy environments.                           maintaining the same time costs. In addition, DenoiseRep++
+                                                                   well to generalized to image detection tasks.
+J. Experiment on Large Scale Image Classification Tasks
+   In this section, we aim to test the generalization ability of L. Experiment on Image Segmentation Task
+DenoiseRep++ in other tasks. We conduct experiments on two          In this section, our objective is to assess the generalization
+image classification datasets, ImageNet-1k and Cifar-10. These   capability of DenoiseRep++ in image segmentation tasks.
+two datasets are both classic image classification datasets, richThe image segmentation task aims to divide an image into
+in common images in daily life, and belong to large-scale        multiple regions in order to identify and understand objects
+image databases. ImageNet-1k is a subset of the ImageNet         or areas within them. The main challenges it faces include:
+dataset, containing images from 1000 categories. Each category   complex and varied backgrounds that can easily interfere
+typically has hundreds to thousands of images, totaling over one with segmentation results, objects obstruct each other, mak-
+million images. The Cfiar-10 contains 60000 32x32 pixel color    ing segmentation difficult, objects have diverse shapes and
+images, divided into 10 categories. Each category contains 6000  may undergo deformations, etc. We conduct experiments on
+images. To evaluate the effectiveness of our method, we use      the ADE20K Zhou et al. [2017] dataset using the current
+standard metrics, including Top-1 accuracy and Top-5 accuracy,   mainstream image segmentation models. ADE20K is a widely
+which are commonly used to evaluate model performance in         used scene segmentation dataset, mainly used for image
+image classification tasks and are widely used on various image  segmentation tasks. It contains approximately 20000 images
+datasets, and we conduct detailed comparative experiments        and over 150 different object and region categories. We choose
+on multiple backbones and models with different parameter        mIoU and B-IOU as evaluation metrics to comprehensively
+versions to verify the reliability of our method.                evaluate the performance of image segmentation models. MIoU
+   As shown in Table VIII, we compare multiple classic           is the average of IoUs for all categories, which can effectively
+backbones for representation learning on two datasets, and       reflect the segmentation ability of the model on different
+after adding the DenoiseRep++ , the accuracy metrics improves    categories. It provides a quantitative model for the accuracy of
+without adding model parameters. Our method demonstrates the     handling complex scenes by calculating the degree of overlap
+capability to enhance the model’s representation learning abilitybetween the predicted area and the real area. A higher mIoU
+and extract more effective features through denoising, all while value means that the model can better identify and segment
+maintaining the same time costs. Moreover, DenoiseRep++          the target object. B-IoU focuses on evaluating the accuracy of
+generalizes effectively to image classification tasks.           segmentation boundaries and is particularly suitable for object
+                                                                 edge segmentation tasks. It provides sensitivity to boundary
+K. Experiment on Image Detection Task                            details by measuring the degree of overlap between predicted
+  In this section, we aim to test the generalization ability of boundaries and real boundaries.
+DenoiseRep++ in image detection tasks. We conduct experi-           As shown in Table X, we compare two classical backbone
+ments on the COCO Karpathy and Fei-Fei [2015] dataset. The networks with different methods. After adding the DenoiseRep,
+COCO (Common Objects in Context) dataset is a widely used both IoU metrics improve without adding model parameters.
+dataset for large-scale image recognition, object detection, and Practice proves that our method can improve the representation
+                                                           TABLE VIII
+            T HE EFFECTIVENESS OF OUR METHOD IN IMAGE CLASSIFICATION TASKS WAS VALIDATED ON C IFAR -10 AND I MAGE N ET-1 K .
+
+
+                                                                                                acc@1                              acc@5
+                Method                                Datasets          Param
+                                                                                     Baseline     +DenoiseRep           Baseline     +DenoiseRep
+                SwinV2-T Liu et al. [2021]          ImageNet-1k         28M          81.82%         82.13%              95.88%         96.06%
+                SwinV2-S Liu et al. [2021]          ImageNet-1k         50M          83.73%         83.97%              96.62%         96.86%
+                SwinV2-B Liu et al. [2021]          ImageNet-1k         88M          84.20%         84.31%              96.93%         97.06%
+                Vmanba-T Liu et al. [2024]          ImageNet-1k         30M          82.38%         82.51%              95.80%         95.89%
+                Vmanba-S Liu et al. [2024]          ImageNet-1k         50M          83.12%         83.27%              96.04%         96.22%
+                Vmanba-B Liu et al. [2024]          ImageNet-1k         89M          83.83%         83.91%              96.55%         96.70%
+                ViT-S Dosovitskiy et al. [2020]     ImageNet-1k         22M          83.87%         84.02%              96.73%         96.86%
+                ViT-B Dosovitskiy et al. [2020]     ImageNet-1k         86M          84.53%         84.64%              97.15%         97.23%
+                ResNet50 He et al. [2016]           ImageNet-1k         26M          76.13%         76.28%              92.86%         92.95%
+                ViT-S Dosovitskiy et al. [2020]       Cifar-10          22M          96.13%         96.20%                 –              –
+                ViT-B Dosovitskiy et al. [2020]       Cifar-10          87M          98.02%         98.31%                 –              –
+
+
+                                                                TABLE IX
+                           T HE EFFECTIVENESS OF OUR METHOD IN IMAGE DETECTION TASKS WAS VALIDATED ON COCO.
+
+
+                                                               AP                                AP50                               AP75
+                 Methods          Backbones
+                                                  Baseline     +DenoiseRep           Baseline     +DenoiseRep           Baseline     +DenoiseRep
+
+                                   Swin-T         42.8%              44.3%           65.1%              67.1%           47.0%              48.6%
+                 Mask-RCNN         Swin-S         48.2%              49.0%           69.9%              70.9%           52.8%              53.8%
+                                  ResNet-50       42.6%              43.2%           63.7%              65.0%           46.4%              46.8%
+
+                 Faster-RCNN      ResNet-50       37.4%              38.3%           58.1%              58.8%           40.4%              41.0%
+
+                 ATSS             ResNet-50       39.4%              39.9%           57.6%              58.2%           42.8%              43.2%
+
+                 YOLO            DarkNet-53       27.9%              28.4%           49.2%              50.3%           28.3%              27.8%
+
+                 DETR             ResNet-50       39.9%              40.8%           60.4%              59.9%           41.7%              42.9%
+
+                 CenterNet        ResNet-50       40.2%              40.6%           58.3%              59.1%           43.9%              44.0%
+
+
+                                                             TABLE X
+                      T HE EFFECTIVENESS OF OUR METHOD IN IMAGE SEGMENTATION TASKS WAS VALIDATED ON ADE20K.
+
+
+                                                                      aAcc                               B-IoU                              mIoU
+          Methods                       Backbones
+                                                          Baseline     +DenoiseRep           Baseline      +DenoiseRep          Baseline     +DenoiseRep
+
+          FCN Long et al. [2015]        ResNet-50            0.774           0.779              0.287           0.299              0.359           0.365
+          FCN                           ResNet-101           0.793           0.796              0.306           0.316              0.396           0.404
+          SegFormer Xie et al. [2021]     mit_b0             0.782           0.788              0.292           0.297              0.374           0.381
+          SegFormer                       mit_b1             0.812           0.816              0.341           0.348              0.422           0.425
+
+
+
+learning ability of the model and obtain more effective features                   t-SNE feature visualization. We first employ t-SNE Maaten
+through denoising without increasing additional time costs. In                  and Hinton [2008] to reduce the high-dimensional CLS
+addition, DenoiseRep well to generalized to image segmentation                  embeddings into a two-dimensional space for visualization. As
+tasks.                                                                          illustrated in Fig. 4, the baseline model produces overlapping
+                                                                                clusters, where samples from different categories are not
+M. Visualization and Statistical Analysis                                       well separated. After applying our denoising modules, the
+   To further investigate how DenoiseRep++ improves feature                     clusters become more compact, and inter-class boundaries
+representations, we perform a comprehensive visualization and                   are noticeably sharper. This qualitative result indicates that
+statistical analysis. We focus on the classification task and                   denoising helps reduce feature noise, thereby facilitating
+extract the CLS token embeddings from the final transformer                     category-level discrimination.
+layer. We analyze both qualitative clustering structures and                      Intra- and inter-class distance statistics. To quantitatively
+quantitative distance statistics before and after denoising.                    validate the above observation, we compute several distance-
+                                                                                                                   (a) Baseline
+
+                      (a) Baseline (without denoising)
+
+
+
+
+                                                                                                             (b) With DenoiseRep++
+                                                                                  Fig. 5. Histogram comparison of intra-class and inter-class distances. (a)
+                                                                                  Baseline model. (b) With DenoiseRep++ . Denoising reduces the overlap area
+                           (b) With DenoiseRep++                                  between intra- and inter-class distributions, indicating improved separability.
+
+Fig. 4. t-SNE visualization of [CLS] token features on cifar-10 classification.
+(a) Baseline. (b) With DenoiseRep++ .
+                                                                                  class distances are better separated.
+
+based statistics:                                                                                 TABLE XI
+                                                                   S TATISTICAL ANALYSIS OF INTRA - CLASS AND INTER - CLASS DISTANCES ON
+   • Intra-class distance. For each category, we calculate the       CIFAR -10 VALIDATION SET. I NTRA - CLASS MEAN IS NORMALIZED TO 1.
+     average pairwise Euclidean distance among all features.
+     The global intra-class mean is normalized to 1 for fair
+                                                                                  Metric        Baseline    +DenoiseRep++
+     comparison, and the variance is reported to measure                          Intra Var        0.019        0.017
+     consistency across classes.                                                  Inter Mean      43.096        50.755
+   • Inter-class distance. We calculate the average pairwise                      Inter Var       54.132        64.959
+     distances between class centroids, and also compute the                      Inter/Intra      1.256        1.280
+     variance across different class pairs.                                       Overlap          0.463        0.4161
+   • Inter/Intra ratio. The ratio between inter-class mean and
+     intra-class mean reflects feature separability: higher values    Discussion. Both the qualitative (t-SNE) and quantitative
+     indicate stronger discriminability.                           (statistical measures) analyses lead to consistent conclusions: (1)
+   • Histogram overlap. We estimate the overlap area be- DenoiseRep++ reduces intra-class variability, making features
+     tween intra- and inter-class distance distributions. Smaller more compact; (2) it enlarges inter-class margins, yielding
+     overlap implies better separation between categories.         clearer class separation; (3) the overall distribution overlap
+   Statistical results. Table XI summarizes the statistics before between intra- and inter-class distances is reduced, confirming
+and after denoising. Compared with the baseline, the denoised improved feature quality. Together, these analyses provide
+features show: (1) lower intra-class variance, meaning features strong evidence that denoising at the feature level improves not
+within the same category are more consistent; (2) higher only classification accuracy but also the underlying representa-
+inter-class mean, suggesting that categories are further apart; tion geometry, which is critical for downstream discriminative
+and (3) an improved inter/intra ratio, indicating better overall tasks.
+separability. Furthermore, the histogram overlap decreases after      Qualitative Analysis on Downstream Tasks. Beyond
+denoising, confirming that the distributions of intra- and inter- image classification, we qualitatively verify the generalization
+  Baseline
+
+
+
+
+                   (a)                            (b)                            (c)                            (d)                            (e)
+DenoiseRep++
+
+
+
+
+                   (f)                            (g)                            (h)                            (i)                            (j)
+Fig. 6. Qualitative comparison of object detection results. (a)-(e) Results of the Baseline model. (f)-(j) Results of the proposed DenoiseRep++ . The visual
+comparison demonstrates that our method effectively reduces false positives and improves bounding box precision.
+  Baseline
+DenoiseRep++
+
+
+
+
+Fig. 7. Qualitative visualization of person re-identification ranking results. The left-most image in each row represents the query, followed by the top-ranked
+retrieved images from the gallery. (Top) The Baseline model is easily distracted by background clutter or noise, leading to incorrect matches (false positives).
+(Bottom) Armed with our DenoiseRep++ , the model extracts more robust and discriminative features, significantly improving retrieval accuracy and ranking
+quality.
+
+
+
+capability of our method on dense prediction and retrieval                       enhances representation robustness, reducing the impact of
+tasks. Fig. 6 illustrates the comparison for object detection                    task-irrelevant noise in both detection and retrieval scenarios.
+and instance segmentation. As shown in the top row, the
+Baseline model tends to generate false positives and inaccurate                  N. Fairness Experiment
+segmentation boundaries, particularly in ambiguous or cluttered
+                                                                                    To ensure the fairness of the experiment, we compared the
+regions (e.g., the extra artifacts in Fig. 6(d)). In contrast,
+                                                                                 performance of the baseline method with our proposed method
+DenoiseRep++ (bottom row) effectively suppresses these noise-
+                                                                                 under the same conditions. Specifically, during the training
+induced artifacts, yielding tighter bounding boxes and more
+                                                                                 process, we strictly controlled the experimental variables so
+precise masks. Furthermore, Fig. 7 visualizes the retrieval
+                                                                                 that both the baseline method and our method ran under the
+ranking results for person re-identification. While the Baseline
+                                                                                 same number of training epochs and hyperparameter settings.
+model is prone to retrieving incorrect identities (marked with
+red borders) due to background distractions or similar clothing,                    The experimental results in Table XII indicate that the base-
+our method consistently retrieves correct matches (marked with                   line method did not show significant performance improvement
+green borders) in the top ranks. These visualizations confirm                    under the same number of training epochs. This observation in-
+that the proposed feature denoising strategy significantly                       dicates that the performance improvement obtained is attributed
+                                                                                 to our proposed method, rather than an increase in training
+                             TABLE XII                                  Saad Albawi, Tareq Abed Mohammed, and Saad Al-Zawi.
+C OMPARISON OF PERFORMANCE BETWEEN BASELINE METHOD AND OUR                 Understanding of a convolutional neural network. In 2017
+ PROPOSED METHOD IN THE SAME ADDITIONAL TRAINING EPOCHS . T HE
+BASELINE METHOD T RANS R E ID-SSL IS BASED ON V I T- SMALL BACKBONE .      international conference on engineering and technology
+                                                                           (ICET), pages 1–6. Ieee, 2017.
+                                                                        Apurva Bedagkar-Gala and Shishir K Shah. A survey of
+        Epoch            120       160       200       240
+                                                                           approaches and trends in person re-identification. Image and
+        Baseline       81.18%    81.19%    81.18%    81.16%                vision computing, 32(4):270–286, 2014.
+        +DenoiseRep    81.18%    81.64%    82.00%    82.12%             Yoshua Bengio, Aaron Courville, and Pascal Vincent. Repre-
+                                                                           sentation learning: A review and new perspectives. IEEE
+                                                                           Transactions on Pattern Analysis and Machine Intelligence,
+time or number of epochs, which validates the effectiveness                35(8):1798–1828, 2013. doi: 10.1109/TPAMI.2013.50.
+of our method.                                                          Hanqun Cao, Cheng Tan, Zhangyang Gao, Yilun Xu, Guangy-
+                                                                           ong Chen, Pheng-Ann Heng, and Stan Z. Li. A survey
+                        V. C ONCLUSION
+                                                                           on generative diffusion models. IEEE Transactions on
+   In this work, we have presented DenoiseRep++ , a novel                  Knowledge and Data Engineering, pages 1–20, 2024. doi:
+framework that effectively bridges the gap between generative              10.1109/TKDE.2024.3361474.
+diffusion models and discriminative representation learning. By         Nicolas Carion, Francisco Massa, Gabriel Synnaeve, Nicolas
+reinterpreting the backbone network as a recursive denoising               Usunier, Alexander Kirillov, and Sergey Zagoruyko. End-
+process, we demonstrate that generative denoising objectives               to-end object detection with transformers. In European
+can significantly enhance feature separability and robustness              conference on computer vision, pages 213–229. Springer,
+without requiring ground-truth labels. A key innovation of our             2020.
+approach lies in achieving these gains with zero additional             Shoufa Chen, Peize Sun, Yibing Song, and Ping Luo. Diffusion-
+inference latency via parameter fusion. To overcome the inher-             det: Diffusion model for object detection. In Proceedings
+ent capacity limitations of lightweight denoising modules, we              of the IEEE/CVF International Conference on Computer
+introduced two synergistic enhancements: (1) a Teacher-Student             Vision, pages 19830–19843, 2023.
+Distillation framework that utilizes a high-capacity teacher to         Tianlong Chen, Shaojin Ding, Jingyi Xie, Ye Yuan, Wuyang
+calibrate the denoising direction and reduce estimation bias;              Chen, Yang Yang, Zhou Ren, and Zhangyang Wang. Abd-net:
+and (2) a Multi-step Fusion strategy that simulates a progressive          Attentive but diverse person re-identification. In Proceedings
+denoising trajectory, thereby mitigating discretization errors             of the IEEE/CVF international conference on computer
+associated with single-step inference. Extensive experiments               vision, pages 8351–8361, 2019.
+across image classification, object detection, segmentation, and        Yuhua Chen, Wen Li, Christos Sakaridis, Dengxin Dai, and Luc
+person re-identification validate that DenoiseRep++ consistently           Van Gool. Domain adaptive faster r-cnn for object detection
+minimizes intra-class variance and maximizes inter-class mar-              in the wild. In Proceedings of the IEEE conference on
+gins. Future Work. DenoiseRep++ establishes a generalizable,               computer vision and pattern recognition, pages 3339–3348,
+model-agnostic paradigm. Future directions include extending               2018.
+this mechanism to multi-modal frameworks (e.g., CLIP) to                Yoonki Cho, Woo Jae Kim, Seunghoon Hong, and Sung-Eui
+enhance cross-modal alignment, and applying it to video                    Yoon. Part-based pseudo label refinement for unsupervised
+understanding to handle temporal noise. Furthermore, while our             person re-identification. In Proceedings of the IEEE/CVF
+current approach relies on linear parameter fusion, exploring              Conference on Computer Vision and Pattern Recognition,
+non-linear approximation techniques inspired by Flow Matching              pages 7308–7318, 2022.
+or ODE solvers could offer new avenues for integrating even             Ruihang Chu, Yifan Sun, Yadong Li, Zheng Liu, Chi Zhang,
+more complex generative priors into discriminative backbones               and Yichen Wei. Vehicle re-identification with viewpoint-
+efficiently.                                                               aware metric learning. In Proceedings of the IEEE/CVF
+                                                                           international conference on computer vision, pages 8282–
+                      ACKNOWLEDGMENT
+                                                                           8291, 2019.
+   This work was supported in part by the National Key                  Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and
+Research and Development Program of China under Grant                      Li Fei-Fei. Imagenet: A large-scale hierarchical image
+(2023YFC3310700), the National Natural Science Foundation                  database. In Computer Vision and Pattern Recognition,
+of China (62572040, 62202041), the Beijing Natural Science                 pages 248–255, 2009.
+Foundation (JQ24019), and the Fundamental Research Funds                Li Deng. The mnist database of handwritten digit images for
+for the Central Universities (2025JBMC011).                                machine learning research [best of the web]. IEEE signal
+                                                                           processing magazine, 29(6):141–142, 2012.
+                          R EFERENCES                                   Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk
+Abien Fred Agarap. An architecture combining convolutional                 Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa
+  neural network (cnn) and support vector machine (svm) for                Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly,
+  image classification. arXiv preprint arXiv:1712.03541, 2017.             et al. An image is worth 16x16 words: Transformers for
+  image recognition at scale. arXiv preprint arXiv:2010.11929,         In Proceedings of the IEEE/CVF Conference on Computer
+  2020.                                                                Vision and Pattern Recognition, pages 6729–6738, 2021.
+Pengfei Fang, Jieming Zhou, Soumava Kumar Roy, Lars                 Jianxin Li, Shuai Zhang, Hui Xiong, and Haoyi Zhou. Autost:
+  Petersson, and Mehrtash Harandi. Bilinear attention networks         Towards the universal modeling of spatio-temporal sequences.
+  for person retrieval. In Proceedings of the IEEE/CVF                 Advances in Neural Information Processing Systems, 35:
+  international conference on computer vision, pages 8030–             20498–20510, 2022.
+  8039, 2019.                                                       Jing Li, Yu Liu, and Lei Zou. Dyngcn: A dynamic graph
+Dengpan Fu, Dongdong Chen, Jianmin Bao, Hao Yang,                      convolutional network based on spatial-temporal modeling.
+  Lu Yuan, Lei Zhang, Houqiang Li, and Dong Chen. Unsuper-             In Web Information Systems Engineering–WISE 2020: 21st
+  vised pre-training for person re-identification. In Proceedings      International Conference, Amsterdam, The Netherlands,
+  of the IEEE/CVF conference on computer vision and pattern            October 20–24, 2020, Proceedings, Part I 21, pages 83–
+  recognition, pages 14750–14759, 2021.                                95. Springer, 2020.
+Ian Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu,           Siyuan Li, Li Sun, and Qingli Li. Clip-reid: exploiting vision-
+  David Warde-Farley, Sherjil Ozair, Aaron Courville, and              language model for image re-identification without concrete
+  Yoshua Bengio. Generative adversarial nets. Advances in              text labels. In Proceedings of the AAAI Conference on
+  neural information processing systems, 27, 2014.                     Artificial Intelligence, volume 37, pages 1405–1413, 2023.
+Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun.              Wei Li, Rui Zhao, Tong Xiao, and Xiaogang Wang. Deepreid:
+  Deep residual learning for image recognition. In Proceedings         Deep filter pairing neural network for person re-identification.
+  of the IEEE conference on computer vision and pattern                In Proceedings of the IEEE conference on computer vision
+  recognition, pages 770–778, 2016.                                    and pattern recognition, pages 152–159, 2014.
+Kaiming He, Georgia Gkioxari, Piotr Dollár, and Ross Girshick.      Shengcai Liao and Stan Z Li. Efficient psd constrained
+  Mask r-cnn. In Proceedings of the IEEE international                 asymmetric metric learning for person re-identification. In
+  conference on computer vision, pages 2961–2969, 2017.                International Conference on Computer Vision, pages 3685–
+Shuting He, Hao Luo, Pichao Wang, Fan Wang, Hao Li,                    3693, 2015.
+  and Wei Jiang. Transreid: Transformer-based object re-            Shengcai Liao, Yang Hu, Xiangyu Zhu, and Stan Z Li. Person
+  identification. In Proceedings of the IEEE/CVF International         re-identification by local maximal occurrence representation
+  Conference on Computer Vision (ICCV), pages 15013–15022,             and metric learning. In Computer Vision and Pattern
+  October 2021.                                                        Recognition, pages 2197–2206, 2015.
+Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion      Kevin Lin, Huei-Fang Yang, Jen-Hao Hsiao, and Chu-Song
+  probabilistic models. Advances in neural information                 Chen. Deep learning of binary hash codes for fast image
+  processing systems, 33:6840–6851, 2020.                              retrieval. In Proceedings of the IEEE conference on computer
+Andrej Karpathy and Li Fei-Fei. Deep visual-semantic                   vision and pattern recognition workshops, pages 27–35,
+  alignments for generating image descriptions. In Proceedings         2015.
+  of the IEEE conference on computer vision and pattern             Hongye Liu, Yonghong Tian, Yaowei Yang, Lu Pang, and
+  recognition, pages 3128–3137, 2015.                                  Tiejun Huang. Deep relative distance learning: Tell the
+Tero Karras, Samuli Laine, and Timo Aila. A style-based                difference between similar vehicles. In Proceedings of the
+  generator architecture for generative adversarial networks.          IEEE conference on computer vision and pattern recognition,
+  In Proceedings of the IEEE/CVF conference on computer                pages 2167–2175, 2016.
+  vision and pattern recognition, pages 4401–4410, 2019.            Yue Liu, Yunjie Tian, Yuzhong Zhao, Hongtian Yu, Lingxi
+Diederik P Kingma and Max Welling. Auto-encoding varia-                Xie, Yaowei Wang, Qixiang Ye, and Yunfan Liu. Vmamba:
+  tional bayes. arXiv preprint arXiv:1312.6114, 2013.                  Visual state space model. arXiv preprint arXiv:2401.10166,
+Martin Koestinger, Martin Hirzer, Paul Wohlhart, Peter M               2024.
+  Roth, and Horst Bischof. Large scale metric learning from         Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng
+  equivalence constraints. In Computer Vision and Pattern              Zhang, Stephen Lin, and Baining Guo. Swin transformer:
+  Recognition, pages 2288–2295, 2012.                                  Hierarchical vision transformer using shifted windows. In
+Alex Krizhevsky, Ilya Sutskever, and Geoffrey E Hinton. Ima-           Proceedings of the IEEE/CVF international conference on
+  genet classification with deep convolutional neural networks.        computer vision, pages 10012–10022, 2021.
+  Advances in neural information processing systems, 25, 2012.      Jonathan Long, Evan Shelhamer, and Trevor Darrell. Fully
+Hei Law and Jia Deng. Cornernet: Detecting objects as paired           convolutional networks for semantic segmentation. In
+  keypoints. In Proceedings of the European conference on              Proceedings of the IEEE conference on computer vision
+  computer vision (ECCV), pages 734–750, 2018.                         and pattern recognition, pages 3431–3440, 2015.
+Yann LeCun, Léon Bottou, Yoshua Bengio, and Patrick Haffner.        Cheng Lu, Yuhao Zhou, Fan Bao, Jianfei Chen, Chongxuan Li,
+  Gradient-based learning applied to document recognition.             and Jun Zhu. Dpm-solver: A fast ode solver for diffusion
+  Proceedings of the IEEE, 86(11):2278–2324, 1998.                     probabilistic model sampling in around 10 steps. Advances
+Hanjun Li, Gaojie Wu, and Wei-Shi Zheng. Combined depth                in neural information processing systems, 35:5775–5787,
+  space based architecture search for person re-identification.        2022.
+Hao Luo, Pichao Wang, Yi Xu, Feng Ding, Yanxin Zhou, Fan              processing systems, 30, 2017.
+   Wang, Hao Li, and Rong Jin. Self-supervised pre-training         Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit,
+   for transformer-based person re-identification. arXiv preprint     Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia
+   arXiv:2111.12084, 2021.                                            Polosukhin. Attention is all you need. Advances in neural
+Bingpeng Ma, Yu Su, and Frederic Jurie. Covariance descriptor         information processing systems, 30, 2017.
+   based on bio-inspired features for person re-identification      Catherine Wah, Steve Branson, Peter Welinder, Pietro Perona,
+   and face verification. Image and Vision Computing, 32(6-7):        and Serge Belongie. The caltech-ucsd birds-200-2011 dataset.
+   379–390, 2014.                                                     2011.
+Laurens van der Maaten and Geoffrey Hinton. Visualizing data        Benzhi Wang, Yang Yang, Jinlin Wu, Guo-jun Qi, and Zhen
+   using t-sne. Journal of machine learning research, 9(Nov):         Lei. Self-similarity driven scale-invariant learning for weakly
+   2579–2605, 2008.                                                   supervised person search. arXiv preprint arXiv:2302.12986,
+Mehdi Mirza and Simon Osindero. Conditional generative                2023.
+   adversarial nets. arXiv preprint arXiv:1411.1784, 2014.          Guan’an Wang, Yang Yang, Jian Cheng, Jinqiao Wang, and
+Hao Ni, Yuke Li, Lianli Gao, Heng Tao Shen, and Jingkuan              Zengguang Hou. Color-sensitive person re-identification.
+   Song. Part-aware transformer for generalizable person re-          In International Joint Conference on Artificial Intelligence,
+   identification. In Proceedings of the IEEE/CVF International       pages 933–939, 2019.
+   Conference on Computer Vision, pages 11280–11289, 2023.          Guan’an Wang, Shuo Yang, Huanyu Liu, Zhicheng Wang,
+Maria-Elena Nilsback and Andrew Zisserman. Automated                  Yang Yang, Shuliang Wang, Gang Yu, Erjin Zhou, and Jian
+   flower classification over a large number of classes. In 2008      Sun. High-order information matters: Learning relation and
+   Sixth Indian conference on computer vision, graphics &             topology for occluded person re-identification. 2020.
+   image processing, pages 722–729. IEEE, 2008.                     Guanshuo Wang, Yufeng Yuan, Xiong Chen, Jiwei Li, and
+Omkar M Parkhi, Andrea Vedaldi, Andrew Zisserman, and                 Xi Zhou. Learning discriminative features with multiple
+   CV Jawahar. Cats and dogs. In 2012 IEEE conference on              granularities for person re-identification. In Proceedings
+   computer vision and pattern recognition, pages 3498–3505.          of the 26th ACM international conference on Multimedia,
+   IEEE, 2012.                                                        pages 274–282, 2018.
+Aditya Ramesh, Mikhail Pavlov, Gabriel Goh, Scott Gray,             Haochen Wang, Jiayi Shen, Yongtuo Liu, Yan Gao, and
+   Chelsea Voss, Alec Radford, Mark Chen, and Ilya Sutskever.         Efstratios Gavves. Nformer: Robust person re-identification
+   Zero-shot text-to-image generation. In International Con-          with neighbor transformer. In Proceedings of the IEEE/CVF
+   ference on Machine Learning, pages 8821–8831. PMLR,                Conference on Computer Vision and Pattern Recognition,
+   2021.                                                              pages 7297–7307, 2022.
+Joseph Redmon. Yolov3: An incremental improvement. arXiv            Longhui Wei, Shiliang Zhang, Wen Gao, and Qi Tian. Person
+   preprint arXiv:1804.02767, 2018.                                   transfer gan to bridge domain gap for person re-identification.
+Shaoqing Ren. Faster r-cnn: Towards real-time object de-              In Proceedings of the IEEE conference on computer vision
+   tection with region proposal networks. arXiv preprint              and pattern recognition, pages 79–88, 2018.
+   arXiv:1506.01497, 2015.                                          Tobias Weyand, Andre Araujo, Bingyi Cao, and Jack Sim.
+Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick             Google landmarks dataset v2-a large-scale benchmark for
+   Esser, and Björn Ommer. High-resolution image syn-                 instance-level recognition and retrieval. In Proceedings of
+   thesis with latent diffusion models. In Proceedings of             the IEEE/CVF conference on computer vision and pattern
+   the IEEE/CVF conference on computer vision and pattern             recognition, pages 2575–2584, 2020.
+   recognition, pages 10684–10695, 2022.                            Enze Xie, Wenhai Wang, Zhiding Yu, Anima Anandkumar,
+Tim Salimans and Jonathan Ho. Progressive distillation                Jose M Alvarez, and Ping Luo. Segformer: Simple and
+   for fast sampling of diffusion models. arXiv preprint              efficient design for semantic segmentation with transformers.
+   arXiv:2202.00512, 2022.                                            Advances in neural information processing systems, 34:
+Jascha Sohl-Dickstein, Eric Weiss, Niru Maheswaranathan,              12077–12090, 2021.
+   and Surya Ganguli. Deep unsupervised learning using              Pei Xu, Jean-Bernard Hayet, and Ioannis Karamouzas. Social-
+   nonequilibrium thermodynamics. In International conference         vae: Human trajectory prediction using timewise latents. In
+   on machine learning, pages 2256–2265. PMLR, 2015.                  European Conference on Computer Vision, pages 511–528.
+Jiaming Song, Chenlin Meng, and Stefano Ermon. Denoising              Springer, 2022.
+   diffusion implicit models. arXiv preprint arXiv:2010.02502,      Yang Yang, Jimei Yang, Junjie Yan, Shengcai Liao, Dong
+   2020.                                                              Yi, and Stan Z Li. Salient color names for person re-
+Junjiao Tian, Lavisha Aggarwal, Andrea Colaco, Zsolt Kira,            identification. In European conference on computer vision,
+   and Mar Gonzalez-Franco. Diffuse, attend, and segment:             pages 536–551, 2014.
+   Unsupervised zero-shot segmentation using stable diffusion.      Mang Ye, Jianbing Shen, Gaojie Lin, Tao Xiang, Ling Shao, and
+   arXiv preprint arXiv:2308.12469, 2023.                             Steven CH Hoi. Deep learning for person re-identification:
+Aaron Van Den Oord, Oriol Vinyals, et al. Neural discrete             A survey and outlook. IEEE transactions on pattern analysis
+   representation learning. Advances in neural information            and machine intelligence, 44(6):2872–2893, 2021.
+Shifeng Zhang, Cheng Chi, Yongqiang Yao, Zhen Lei, and
+  Stan Z Li. Bridging the gap between anchor-based and
+  anchor-free detection via adaptive training sample selection.
+  In Proceedings of the IEEE/CVF conference on computer
+  vision and pattern recognition, pages 9759–9768, 2020a.
+Zhizheng Zhang, Cuiling Lan, Wenjun Zeng, Xin Jin, and
+  Zhibo Chen. Relation-aware global attention for person re-
+  identification. In Proceedings of the ieee/cvf conference on
+  computer vision and pattern recognition, pages 3186–3195,
+  2020b.
+Tiancheng Zhao, Ran Zhao, and Maxine Eskenazi. Learn-
+  ing discourse-level diversity for neural dialog models us-
+  ing conditional variational autoencoders. arXiv preprint
+  arXiv:1703.10960, 2017.
+Liang Zheng, Liyue Shen, Lu Tian, Shengjin Wang, Jingdong
+  Wang, and Qi Tian. Scalable person re-identification: A
+  benchmark. In International Conference on Computer Vision,
+  pages 1116–1124, 2015.
+Wei-Shi Zheng, Shaogang Gong, and Tao Xiang. Reidentifica-
+  tion by relative distance comparison. IEEE transactions on
+  pattern analysis and machine intelligence, 35(3):653–668,
+  2013.
+Zhedong Zheng, Liang Zheng, and Yi Yang. Unlabeled sam-
+  ples generated by gan improve the person re-identification
+  baseline in vitro. arXiv preprint arXiv:1701.07717, 2017.
+Bolei Zhou, Hang Zhao, Xavier Puig, Sanja Fidler, Adela
+  Barriuso, and Antonio Torralba. Scene parsing through
+  ade20k dataset. In Proceedings of the IEEE conference on
+  computer vision and pattern recognition, pages 633–641,
+  2017.
+Kaiyang Zhou, Yongxin Yang, Andrea Cavallaro, and Tao Xi-
+  ang. Omni-scale feature learning for person re-identification.
+  In Proceedings of the IEEE/CVF international conference
+  on computer vision, pages 3702–3712, 2019a.
+Xingyi Zhou, Dequan Wang, and Philipp Krähenbühl. Objects
+  as points. arXiv preprint arXiv:1904.07850, 2019b.
+Kuan Zhu, Haiyun Guo, Zhiwei Liu, Ming Tang, and Jinqiao
+  Wang. Identity-guided human semantic parsing for person re-
+  identification. In European Conference on Computer Vision,
+  pages 346–363. Springer, 2020.
+
