@@ -1,0 +1,103 @@
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,inner=1.2in,outer=1.2in,top=0.9in,bottom=1.0in]{geometry}
+\usepackage{newtxtext,newtxmath}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{siunitx}
+\usepackage{hyperref}
+
+\pagestyle{empty}
+
+\begin{document}
+
+
+\centering
+{\large \textbf{State of Differences}}\\[0.6cm]
+{\large \textbf{\textit{DenoiseRep\textsuperscript{++}}: Enhanced Denoising Model for Representation Learning}}\\[0.6cm]
+{\large Submitted to IEEE Transactions on Pattern Analysis and Machine Intelligence}\\[0.6cm]
+
+\raggedright
+
+\hspace*{1em}
+This work extends our NeurIPS 2024 version~\cite{xu2024denoiserep} with \textbf{substantial methodological, experimental, and performance enhancements}, forming a significantly strengthened submission suitable for TPAMI.\\[1.2em]
+
+
+% --------------------------------
+% 1. 方法改进
+% --------------------------------
+\textbf{1. Methodological Improvements}
+
+\begin{itemize}
+
+    \item \textbf{Teacher–Student Distillation for Denoising Module:}  
+    The constraint of ensuring a computation-free inference necessitates a highly compact denoising module. However, we identify that such a lightweight structure suffers from limited capacity, leading to underfitting of the complex high-dimensional noise distribution in the NeurIPS version. To resolve this capacity-efficiency trade-off, we introduce a teacher–student distillation mechanism in which a stronger teacher denoiser supervises 
+    a compact student. This provides a smoother and more accurate noise estimation signal (see Section D of the Methods, Eqs. (11) and (12)):
+    \[
+    \mathcal{L}_{distill} = \|\hat{\epsilon}_S(X_t,t) - \hat{\epsilon}_T(X_t,t)\|_2^2.
+    \]
+
+    \textit{Evidence from metrics:}  
+    Compared with the baseline \textit{DenoiseRep} module, distillation yields more discriminative feature representations, characterized by sharper class boundaries and reduced ambiguity. Specifically, Top-1 accuracy on ImageNet 
+    improves from 82.13\% (\textit{DenoiseRep}) to 82.30\% (\textbf{+0.17\% over \textit{DenoiseRep}}), and MSMT17 
+    ReID mAP increases from 67.33\% to 67.73\% (\textbf{+0.40\% over \textit{DenoiseRep}}).
+
+    \item \textbf{Multi-Step Denoising Fusion:}  
+    Inspired by progressive sampling in diffusion models, we mathematically merge the parameters of multiple denoising steps into a single linear transformation via re-parameterization. This effectively compresses a multi-step denoising trajectory into a single operation. This enhances feature refinement without increasing model size or inference cost. While explicitly executing the denoising module (the non-fused alternative) increases inference latency by approximately 15\% (as detailed in Table V), our parameter fusion strategy effectively eliminates this overhead, maintaining the exact same computational efficiency as the original backbone. Implementation details are provided in Section~G.
+
+    \textit{Evidence from metrics:}  
+    Relative to the baseline \textit{DenoiseRep} module, multi-step fusion further enhances feature refinement 
+    and separation quality. This results in performance improvements such as COCO AP increasing 
+    from 44.3\% to 44.7\% (\textbf{+0.40\% over \textit{DenoiseRep}}) and ADE20K mIoU rising from 34.8\% 
+    to 35.0\% (\textbf{+0.20\% over \textit{DenoiseRep}}).
+\end{itemize}
+
+
+% --------------------------------
+% 2. 实验分析
+% --------------------------------
+\vspace{0.6em}
+\textbf{2. Experimental Analyses}
+
+\begin{itemize}
+
+    \item \textbf{Ablation Studies:}  
+    Each component—teacher–student distillation and multi-step fusion—contributes consistently 
+    across ImageNet classification, person ReID, COCO detection, and ADE20K segmentation.  
+    The detailed experimental results are reported in \textbf{Tables~I} and \textbf{V}.
+
+    \item \textbf{Feature Statistics Visualization:}  
+    t-SNE plots, intra/inter-class distance statistics, and overlap measurements collectively show that 
+    \textit{DenoiseRep\textsuperscript{++}} forms tighter clusters and improves inter-class separability.  
+    Quantitative metrics (lower intra variance, higher inter mean) validate the effectiveness of the denoising module.  
+    Full results are presented in \textbf{Table~XI}, and the corresponding visualization is shown in Figures~4 and~5.
+
+\end{itemize}
+
+
+% --------------------------------
+% 3. 性能提升
+% --------------------------------
+\vspace{0.6em}
+\textbf{3. Performance Improvements}
+
+The improved system delivers consistent gains across multiple benchmarks:
+
+\begin{center} \begin{tabular}{lcccccc} \toprule \textbf{Task} & \textbf{Dataset} & \textbf{Backbone} & \textbf{Baseline} & \textbf{+\textit{DenoiseRep}} & \textbf{+\textit{DenoiseRep\textsuperscript{++}}} \\ \midrule Classification & ImageNet-1k & Swin-T & 81.82\% & 82.13\% & \textbf{82.30\%} \\ Person Re-ID & MSMT17 & ViT-S & 66.30\% & 67.33\% & \textbf{67.73\%} \\ Detection & COCO & Swin-T & 42.8\% & 44.3\% & \textbf{44.7\%} \\ Segmentation & ADE20K & ResNet-50 & 34.1\% & 34.8\% & \textbf{35.0\%} \\ \bottomrule \end{tabular} \end{center}
+
+\textbf{These gains are achieved with no additional inference cost},  
+as all auxiliary computations are fused into a single lightweight module.\\[1.0em]
+
+
+\hspace*{2em}
+Thank you for considering our manuscript for publication in \textit{TPAMI}. 
+We look forward to your feedback and hope that our work contributes to advancing 
+the field of pattern analysis and machine intelligence.
+
+
+% \let\newpage\relax
+\bibliographystyle{ieeetr}
+\bibliography{reference}
+\end{document}
