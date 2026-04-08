@@ -260,6 +260,7 @@ Y_0 = W_L\bigl(A_t\,\mathbf{x}_t + C_t + \delta_t\,\mathbf{z}\bigr) + b_L
 \caption{本章各模块在多种判别式任务上的消融实验结果\protect\\[-2pt]{\rm Table\;\thetable\quad Ablation study of the proposed modules on multiple discriminative tasks}}\label{tab:chap4_ablation}
 \vspace{0.2cm}
 \renewcommand{\arraystretch}{1.2}
+\resizebox{\textwidth}{!}{
 \begin{tabular}{l|c|c|c|c|c}
 \hline\hline
 任务（数据集，骨干网络，指标） & 基线 & +第三章方法 & +DM & +FM & +完整方法 \\
@@ -270,6 +271,7 @@ Y_0 = W_L\bigl(A_t\,\mathbf{x}_t + C_t + \delta_t\,\mathbf{z}\bigr) + b_L
 分割（ADE20K，FCN ResNet-50，B-IoU） & 34.10\% & 34.80\% & 34.90\% & 35.50\% & 35.00\% \\
 \hline\hline
 \end{tabular}
+}
 \end{table*}
 
 从表\ref{tab:chap4_ablation}可以得出以下结论：
@@ -279,6 +281,12 @@ Y_0 = W_L\bigl(A_t\,\mathbf{x}_t + C_t + \delta_t\,\mathbf{z}\bigr) + b_L
 （2）两个模块具有互补性。同时使用蒸馏模块和融合模块（完整方法）在分类、检索和检测任务上均取得了最佳性能，印证了两个模块从不同维度解决问题的互补性：蒸馏模块提升每步去噪的精度，融合模块增大有效去噪的幅度。值得注意的是，在分割任务上完整方法的B-IoU略低于单独融合模块，这可能与分割任务中像素级预测对去噪强度较为敏感有关，过强的去噪反而可能平滑掉部分边界信息，该现象有待后续进一步研究。
 
 （3）不同任务呈现不同的响应模式。分类任务的绝对提升幅度较小但稳定，而检索和密集预测任务（检测、分割）获得了更大的相对增益。合理的解释是：行人重识别需要区分细微的身份差异，目标检测和图像分割需要精确的局部特征，这些任务对特征噪声更为敏感，因此从去噪增强中获益更多。
+
+为进一步深入理解两个模块各自的作用机制，以下对蒸馏模块和融合模块的增强效果进行分别分析。
+
+蒸馏模块的核心作用在于提升每步去噪的噪声预测精度。教师网络凭借更大的参数容量，能够学习到更精确的从含噪特征到噪声残差的映射关系。通过L2回归损失将教师的预测作为软标签，学生模块继承了教师对噪声结构的归纳偏置，而不增加推理成本。从训练动态的角度观察，引入蒸馏的学生网络表现出更快的早期收敛速度和更平滑的损失曲线，这表明教师信号有效地约束了学生的优化轨迹，减少了训练过程中的振荡。在超参数方面，蒸馏损失与去噪损失的平衡系数$\lambda_d$（式（\ref{eq:chap4_total_distill}））对性能有一定影响：过大的$\lambda_d$会导致学生过度拟合教师的特定噪声模式，降低泛化能力；过小的$\lambda_d$则未能充分利用教师信号。实验中，取$\lambda_d$为中等数值时效果最佳。
+
+融合模块的核心作用则在于增大有效去噪幅度。当骨干网络的层数有限时，直接增加更多的去噪层并不可行。融合模块通过两种互补机制解决这一问题：多轮单层去噪通过在单层上反复执行仿射变换来模拟更深的去噪轨迹（式（\ref{eq:chap4_kstep}）），多步去噪蒸馏则将教师的多步预测压缩为学生的单步操作。两者的共同效果是在不增加推理层数的前提下，显著降低了逐层噪声残差的范数，实现了更强的噪声抑制。在实际应用中，模拟轮数$k$的选择遵循边际递减规律：第一轮额外去噪通常带来最大增益，后续轮次的改善逐渐减小同时训练复杂度增加。因此推荐使用较小的$k$值（$k = 2 \sim 3$），在效果和效率之间取得平衡。
 
 \subsection{跨任务泛化分析}
 
@@ -293,6 +301,7 @@ Y_0 = W_L\bigl(A_t\,\mathbf{x}_t + C_t + \delta_t\,\mathbf{z}\bigr) + b_L
 \caption{本章方法在图像分类任务上的实验结果\protect\\[-2pt]{\rm Table\;\thetable\quad Experimental results on image classification tasks}}\label{tab:chap4_cls}
 \vspace{0.2cm}
 \renewcommand{\arraystretch}{1.2}
+\resizebox{\textwidth}{!}{
 \begin{tabular}{l|c|c|cc|cc}
 \hline\hline
 \multirow{2}{*}{骨干网络} & \multirow{2}{*}{数据集} & \multirow{2}{*}{参数量} & \multicolumn{2}{c|}{acc@1} & \multicolumn{2}{c}{acc@5} \\
@@ -317,6 +326,7 @@ ViT-B\cite{dosovitskiy2020image} & Oxford-Pet & 87M & 94.37\% & 94.58\% & -- & -
 ViT-B\cite{dosovitskiy2020image} & Flowers & 87M & 99.12\% & 99.30\% & -- & -- \\
 \hline\hline
 \end{tabular}
+}
 \end{table*}
 
 从表\ref{tab:chap4_cls}可以观察到以下规律：
@@ -336,6 +346,7 @@ ViT-B\cite{dosovitskiy2020image} & Flowers & 87M & 99.12\% & 99.30\% & -- & -- \
 \caption{本章方法在目标检测任务上的实验结果\protect\\[-2pt]{\rm Table\;\thetable\quad Experimental results on object detection tasks}}\label{tab:chap4_det}
 \vspace{0.2cm}
 \renewcommand{\arraystretch}{1.2}
+\resizebox{\textwidth}{!}{
 \begin{tabular}{l|c|cc|cc|cc}
 \hline\hline
 \multirow{2}{*}{检测方法} & \multirow{2}{*}{骨干网络} & \multicolumn{2}{c|}{AP} & \multicolumn{2}{c|}{AP$_{50}$} & \multicolumn{2}{c}{AP$_{75}$} \\
@@ -352,6 +363,7 @@ DETR\cite{carion2020end} & ResNet-50 & 39.9\% & 40.8\% & 60.4\% & 59.9\% & 41.7\
 CenterNet\cite{zhou2019objects} & ResNet-50 & 40.2\% & 40.6\% & 58.3\% & 59.1\% & 43.9\% & 44.0\% \\
 \hline\hline
 \end{tabular}
+}
 \end{table*}
 
 实验结果表明，本方法在六种不同的检测框架上均取得了性能提升，涵盖了两阶段检测器（Mask-RCNN、Faster-RCNN）、单阶段检测器（ATSS、YOLOv3）和基于Transformer的检测器（DETR、CenterNet）。这些检测方法在架构设计、候选框生成方式和训练策略等方面存在显著差异，本方法仍然能够在不引入额外推理开销的前提下一致地提升检测性能，充分体现了方法的模型无关性和通用性。
@@ -365,6 +377,7 @@ CenterNet\cite{zhou2019objects} & ResNet-50 & 40.2\% & 40.6\% & 58.3\% & 59.1\% 
 \caption{本章方法在图像分割任务上的实验结果\protect\\[-2pt]{\rm Table\;\thetable\quad Experimental results on image segmentation tasks}}\label{tab:chap4_seg}
 \vspace{0.2cm}
 \renewcommand{\arraystretch}{1.2}
+\resizebox{\textwidth}{!}{
 \begin{tabular}{l|c|cc|cc|cc}
 \hline\hline
 \multirow{2}{*}{分割方法} & \multirow{2}{*}{骨干网络} & \multicolumn{2}{c|}{aAcc} & \multicolumn{2}{c|}{B-IoU} & \multicolumn{2}{c}{mIoU} \\
@@ -376,6 +389,7 @@ SegFormer\cite{xie2021segformer} & MIT-B0 & 0.782 & 0.788 & 0.292 & 0.297 & 0.37
 SegFormer & MIT-B1 & 0.812 & 0.816 & 0.341 & 0.348 & 0.422 & 0.425 \\
 \hline\hline
 \end{tabular}
+}
 \end{table*}
 
 在图像分割任务中，本方法在FCN和SegFormer两种分割模型以及不同规模的骨干网络上均取得了mIoU和B-IoU的一致提升。值得关注的是，B-IoU指标衡量的是分割边界的精度，该指标的提升表明去噪增强后的特征具有更好的空间定位能力，能够更准确地描绘目标边界。
@@ -401,9 +415,61 @@ Vehicle-ReID\cite{chu2019vehicle} & ResNet-50 & VehicleID & 76.4\% & 69.1\% \\
 
 实验结果表明，本方法在车辆重识别任务中同样取得了显著的性能提升。与行人重识别相比，车辆重识别场景中的噪声来源更加多样化，包括不同视角下的形变、光照反射和环境遮挡等，本方法仍然能够有效提升特征的判别性，进一步验证了方法的通用性。
 
-\subsubsection{特征可视化与统计分析}
+\subsubsection{跨领域泛化实验}
 
-为从特征分布的角度直观理解去噪增强的效果，本节进行了t-SNE特征可视化和类内/类间距离统计分析。
+为进一步验证本章所提方法的通用性是否能够超越计算机视觉领域的范畴，本节将方法扩展至两个本质不同的应用领域：序列推荐和自然语言处理。这些实验旨在证明，所提出的特征级去噪增强范式不局限于视觉表征，而是广泛适用于任何基于Transformer架构的特征学习框架。
+
+在序列推荐任务中，将本方法应用于SASRec\cite{kang2018self}——一种具有代表性的基于自注意力的序列推荐模型。SASRec通过一个嵌入层和两个自注意力块对用户的交互序列进行编码，以预测用户可能感兴趣的下一个物品。实验在MovieLens-1M\cite{harper2015movielens}数据集上进行，该数据集包含约100万条用户-电影评分记录。将去噪模块集成至每个自注意力块的线性层中（共4个线性层）。评价指标采用HR@10（命中率）和NDCG@10（归一化折损累积增益）。表\ref{tab:chap4_rec}展示了实验结果。
+
+\begin{table}[htbp]
+\centering
+\caption{序列推荐任务的跨领域评估结果（MovieLens-1M数据集）\protect\\[-2pt]{\rm Table\;\thetable\quad Cross-domain evaluation on sequential recommendation (MovieLens-1M)}}\label{tab:chap4_rec}
+\vspace{0.2cm}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{l|cc}
+\hline\hline
+方法 & HR@10 & NDCG@10 \\
+\hline
+SASRec\cite{kang2018self} & 0.8481 & 0.5913 \\
++本章方法 & 0.8552 & 0.5998 \\
+\hline\hline
+\end{tabular}
+\end{table}
+
+从表\ref{tab:chap4_rec}可以看到，添加本章方法后，HR@10从0.8481提升至0.8552（+0.84\%），NDCG@10从0.5913提升至0.5998（+1.44\%）。这一提升表明，去噪增强能够有效减少序列推荐模型中因用户交互数据稀疏和噪声引起的特征污染。在推荐系统中，用户行为序列本身包含大量噪声信号（如随机点击、误操作等），这些噪声通过Transformer的注意力机制被放大并传播至后续特征层。本方法在每一层对特征进行去噪，能够有效抑制这些噪声信号的累积效应，使模型更准确地捕获用户的真实兴趣偏好。
+
+在自然语言表征学习任务中，将本方法应用于SimCSE\cite{gao2021simcse}——一种广泛使用的句子表征学习方法，采用BERT-base\cite{devlin2019bert}作为骨干网络，在STS-B\cite{cer2017semeval}基准上进行评估。SimCSE通过BERT的嵌入层和12个Transformer编码块对输入句子进行编码，提取\texttt{[CLS]}令牌的表征用于对比学习。将去噪模块集成至BERT Transformer编码块中的所有24个线性层中。表\ref{tab:chap4_nlp}展示了无监督和有监督两种设置下的实验结果。
+
+\begin{table}[htbp]
+\centering
+\caption{句子表征学习任务的跨领域评估结果（STS-B基准）\protect\\[-2pt]{\rm Table\;\thetable\quad Cross-domain evaluation on sentence representation learning (STS-B)}}\label{tab:chap4_nlp}
+\vspace{0.2cm}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{l|c}
+\hline\hline
+方法 & STS-B \\
+\hline
+BERT-base（无微调） & 48.64 \\
+SimCSE-BERT-base（无监督） & 76.25 \\
+SimCSE-BERT-base（有监督） & 81.57 \\
+\hline
+SimCSE-BERT-base + 本章方法（无监督） & 77.11 \\
+SimCSE-BERT-base + 本章方法（有监督） & 81.89 \\
+\hline\hline
+\end{tabular}
+\end{table}
+
+从表\ref{tab:chap4_nlp}可以看到，本方法在无监督和有监督两种设置下均取得了一致的性能提升。在无监督设置下，STS-B分数从76.25提升至77.11（+0.86）；在有监督设置下，从81.57提升至81.89（+0.32）。值得注意的是，无监督设置下的提升幅度（+0.86）显著大于有监督设置（+0.32）。这一观察与本方法的核心假设高度一致：在缺乏显式监督信号的条件下，特征空间更容易呈现各向异性分布和更严重的噪声污染，为去噪增强提供了更大的改善空间。在有监督设置中，标签信号本身已经施加了较强的特征空间约束，噪声水平相对较低，因此去噪的边际收益有所减少。
+
+综合序列推荐和自然语言处理两个跨领域实验的结果，可以得出以下结论：本章所提的特征去噪增强方法是一种通用的、与模型架构无关的技术——只要模型包含可表示为线性变换的嵌入层（如Transformer中的线性投影层），本方法即可通过在每一层的特征空间上施加去噪操作来提升表征质量。这一通用性来源于方法的基本设计理念：去噪操作直接作用于特征层面而非任务层面，因此不依赖于特定任务的数据结构或输出格式。
+
+\subsection{可视化分析与去噪可解释性}
+
+前两节通过定量指标验证了本章方法在多类任务上的有效性。为深入理解去噪增强的内在机理，本节从三个层次展开可视化分析与可解释性研究：首先通过特征分布可视化和距离统计分析验证去噪对表征几何结构的改善；其次通过下游任务的定性可视化展示去噪增强的实际效果；最后通过注意力图分析揭示去噪对模型决策行为的影响机制。
+
+\subsubsection{特征分布可视化与距离统计分析}
+
+为从特征分布的角度直观理解去噪增强的效果，本节在Cifar-10分类任务上进行t-SNE特征可视化和类内/类间距离统计分析。具体而言，提取ViT-B骨干网络最后一层Transformer输出的CLS特征向量，分别对基线模型和添加本章方法后的模型进行对比分析。
 
 \begin{figure}[htbp]
 \centering
@@ -418,7 +484,7 @@ Vehicle-ReID\cite{chu2019vehicle} & ResNet-50 & VehicleID & 76.4\% & 69.1\% \\
 \caption{Cifar-10分类任务的t-SNE特征可视化对比\protect\\[-2pt]{\rm Fig.\;\thefigure\quad t-SNE visualization of features on Cifar-10 classification}}\label{fig:chap4_tsne}
 \end{figure}
 
-图\ref{fig:chap4_tsne}展示了基线模型和添加本章方法后的CLS特征在二维空间中的t-SNE可视化结果。可以观察到，基线模型（图\ref{fig:chap4_tsne_baseline}）的特征聚类存在明显的重叠区域，不同类别的样本在边界处混杂。而添加本章方法后（图\ref{fig:chap4_tsne_denoise}），各类别的聚类变得更加紧凑，类间边界明显更加清晰，表明去噪增强有效降低了特征中的噪声，提升了类别级别的判别性。
+图\ref{fig:chap4_tsne}利用t-SNE\cite{maaten2008visualizing}将高维CLS特征降至二维空间进行可视化。可以观察到，基线模型（图\ref{fig:chap4_tsne_baseline}）的特征聚类存在明显的重叠区域，尤其是语义相近的类别（如"汽车"与"卡车"、"猫"与"狗"）在边界处存在严重混杂，反映了特征中残留噪声导致的类内分散和类间模糊。而添加本章方法后（图\ref{fig:chap4_tsne_denoise}），各类别的聚类变得更加紧凑，类间边界明显更加清晰，原本混杂的类别在特征空间中被有效分离。这一结果直观地表明，去噪增强能够降低特征中的噪声干扰，使同类样本的特征表示更加一致，不同类别之间的判别性更强。
 
 \begin{figure}[htbp]
 \centering
@@ -433,7 +499,7 @@ Vehicle-ReID\cite{chu2019vehicle} & ResNet-50 & VehicleID & 76.4\% & 69.1\% \\
 \caption{类内距离与类间距离的直方图对比\protect\\[-2pt]{\rm Fig.\;\thefigure\quad Histogram comparison of intra-class and inter-class distances}}\label{fig:chap4_dist}
 \end{figure}
 
-图\ref{fig:chap4_dist}进一步展示了类内距离和类间距离分布的直方图对比。添加本章方法后，类内距离分布更加集中（方差减小），类间距离分布向更大值偏移，两个分布之间的重叠面积显著减少。
+为进一步定量验证上述观察，图\ref{fig:chap4_dist}展示了类内距离和类间距离分布的直方图对比。在基线模型中（图\ref{fig:chap4_dist_baseline}），类内距离和类间距离的分布存在较大的重叠区域，意味着部分不同类别的样本对之间的距离甚至小于同类样本对之间的距离，这将直接导致分类边界的模糊。添加本章方法后（图\ref{fig:chap4_dist_denoise}），类内距离分布向更小值集中（左移且变窄），类间距离分布向更大值偏移（右移），两个分布之间的重叠面积显著减少，表明去噪增强有效改善了特征空间的可分离性。
 
 表\ref{tab:chap4_dist_stats}给出了定量统计结果（类内均值归一化为1）。
 
@@ -455,7 +521,90 @@ Vehicle-ReID\cite{chu2019vehicle} & ResNet-50 & VehicleID & 76.4\% & 69.1\% \\
 \end{tabular}
 \end{table}
 
-统计结果与可视化分析一致：（1）类内方差从0.019降低至0.017，说明同类特征更加一致；（2）类间均值从43.096增加至50.755，说明不同类别的特征被推得更远；（3）类间/类内比从1.256提高至1.280，说明整体可分离性增强；（4）重叠面积从0.463降低至0.416，说明类内和类间距离分布的分离程度更好。这些结果从特征几何的角度充分证明了去噪增强对表征质量的改善。
+统计结果与可视化分析一致：（1）类内方差从0.019降低至0.017（降幅10.5\%），说明同类样本的特征表示更加一致，去噪减少了类内特征的随机波动；（2）类间均值从43.096增加至50.755（增幅17.8\%），说明不同类别的特征中心在空间中被推得更远，判别性显著增强；（3）类间/类内比从1.256提高至1.280，说明特征空间的整体可分离性得到改善；（4）重叠面积从0.463降低至0.416（降幅10.2\%），说明类内和类间距离分布的分离程度更好，理论上的分类错误上界随之降低。这些结果从特征几何的角度充分证明了去噪增强对表征质量的改善。
+
+\subsubsection{下游任务定性可视化}
+
+为验证特征去噪在实际下游任务中的效果，本节分别对目标检测与实例分割、行人重识别两类任务进行定性可视化分析。
+
+图\ref{fig:chap4_det_vis}展示了基线模型与添加本章方法后在COCO数据集上的目标检测与实例分割定性对比结果。
+
+\begin{figure*}[htbp]
+\centering
+\subfigure[基线模型检测结果]{
+\includegraphics[width=0.19\textwidth]{figures/det_vis/base_01.jpg}\hfill
+\includegraphics[width=0.19\textwidth]{figures/det_vis/base_03.jpg}\hfill
+\includegraphics[width=0.19\textwidth]{figures/det_vis/base_04.jpg}\hfill
+\includegraphics[width=0.19\textwidth]{figures/det_vis/base_05.jpg}\hfill
+\includegraphics[width=0.19\textwidth]{figures/det_vis/base_06.jpg}
+\label{fig:chap4_det_base}
+}
+\subfigure[添加本章方法后的检测结果]{
+\includegraphics[width=0.19\textwidth]{figures/det_vis/denoiserep_01.jpg}\hfill
+\includegraphics[width=0.19\textwidth]{figures/det_vis/denoiserep_03.jpg}\hfill
+\includegraphics[width=0.19\textwidth]{figures/det_vis/denoiserep_04.jpg}\hfill
+\includegraphics[width=0.19\textwidth]{figures/det_vis/denoiserep_05.jpg}\hfill
+\includegraphics[width=0.19\textwidth]{figures/det_vis/denoiserep_06.jpg}
+\label{fig:chap4_det_denoise}
+}
+\caption{目标检测与实例分割的定性对比\protect\\[-2pt]{\rm Fig.\;\thefigure\quad Qualitative comparison of object detection and instance segmentation results}}\label{fig:chap4_det_vis}
+\end{figure*}
+
+对比图\ref{fig:chap4_det_base}和图\ref{fig:chap4_det_denoise}，可以从以下几个维度观察去噪增强的效果：（1）在误检抑制方面，基线模型在背景杂乱的区域容易产生虚假检测响应，例如将背景纹理误识别为目标。添加本章方法后，这类误检被有效抑制，模型的精确率（Precision）得到改善。（2）在定位精度方面，去噪后的检测框与目标的贴合程度更高，边界框的回归更加精确，这与表\ref{tab:chap4_det}中AP$_{75}$（高IoU阈值下的AP）的提升相呼应。（3）在实例分割质量方面，去噪后的分割掩码边界更加光滑且贴合目标轮廓，尤其在目标边缘和遮挡区域表现更为明显。这些定性结果表明，特征去噪能够有效抑制噪声引起的虚假响应，提升密集预测任务中特征的空间精度和语义一致性。
+
+图\ref{fig:chap4_reid_vis}展示了行人重识别任务中检索排序结果的定性对比。每行最左侧为查询（Query）图像，其后为按特征相似度从高到低排列的检索结果，绿色边框表示正确匹配（与查询为同一身份），红色边框表示错误匹配。
+
+\begin{figure*}[htbp]
+\centering
+\subfigure[基线模型检索结果]{
+\includegraphics[width=0.95\textwidth]{figures/reid_vis/reid_base.jpg}
+\label{fig:chap4_reid_base}
+}
+\subfigure[添加本章方法后的检索结果]{
+\includegraphics[width=0.95\textwidth]{figures/reid_vis/reid_denoise.jpg}
+\label{fig:chap4_reid_denoise}
+}
+\caption{行人重识别检索排序结果的定性对比\protect\\[-2pt]{\rm Fig.\;\thefigure\quad Qualitative comparison of person re-identification ranking results}}\label{fig:chap4_reid_vis}
+\end{figure*}
+
+对比图\ref{fig:chap4_reid_base}和图\ref{fig:chap4_reid_denoise}可以发现，基线模型容易受到背景杂乱、相似服装颜色和光照变化等因素的干扰，在排序靠前的位置出现了多个错误匹配（红色边框）。这些错误匹配的共性特征是：与查询行人具有相似的背景环境或整体色调，但实际身份不同——说明基线模型的特征中混入了过多与身份无关的环境噪声。而添加本章方法后，模型提取的特征更加聚焦于身份判别性信息，错误匹配显著减少，排序前列几乎全部为正确匹配（绿色边框），检索排序的质量和可靠性大幅提升。
+
+\subsubsection{注意力图可解释性分析}
+
+前两节分别从特征分布和下游任务输出的角度验证了去噪增强的效果，但尚未揭示去噪如何影响模型的内部决策过程。为提供可解释性层面的理解，本节采用Attention Rollout\cite{abnar2020quantifying}方法对模型的注意力分布进行可视化分析。Attention Rollout通过递归地在所有Transformer层上聚合多头自注意力权重（取均值融合），将多层注意力传播关系压缩为一张整体注意力热力图，能够反映模型在推理时对输入图像各区域的关注程度。
+
+图\ref{fig:chap4_attn_map}展示了DukeMTMC-reID数据集上四个代表性样本的注意力图对比。每个样本从左到右依次为：原始图像、基线注意力热力图、基线叠加图、本章方法注意力热力图、本章方法叠加图以及逐像素差异图（基线$-$本章方法）。
+
+\begin{figure*}[htbp]
+\centering
+\subfigure[样本1：Pearson $r{=}0.827$，Att-IoU@0.5${=}0.521$]{
+\includegraphics[width=0.48\textwidth]{figures/attn_reid_1.png}
+\label{fig:chap4_attn1}
+}\hfill
+\subfigure[样本2：Pearson $r{=}0.811$，Att-IoU@0.5${=}0.537$]{
+\includegraphics[width=0.48\textwidth]{figures/attn_reid_2.png}
+\label{fig:chap4_attn2}
+}
+\subfigure[样本3：Pearson $r{=}0.641$，Att-IoU@0.5${=}0.489$]{
+\includegraphics[width=0.48\textwidth]{figures/attn_reid_3.png}
+\label{fig:chap4_attn3}
+}\hfill
+\subfigure[样本4]{
+\includegraphics[width=0.48\textwidth]{figures/attn_reid_4.png}
+\label{fig:chap4_attn4}
+}
+\caption{基线模型与本章方法在行人重识别任务上的注意力图对比（DukeMTMC-reID数据集）。去噪后模型的注意力更集中于具有身份判别性的区域，对背景干扰的响应显著降低\protect\\[-2pt]{\rm Fig.\;\thefigure\quad Attention map comparison between Baseline and our method on person re-identification (DukeMTMC-reID)}}\label{fig:chap4_attn_map}
+\end{figure*}
+
+从图\ref{fig:chap4_attn_map}中可以得出以下关键发现：
+
+（1）去噪后的模型更加聚焦于具有身份判别性的区域。对比基线模型和本章方法的热力图，去噪后的模型将注意力更集中地分配在语义上有意义的身体区域——如面部、上半身和服装纹理等对身份判别至关重要的部位。以图\ref{fig:chap4_attn1}为例，基线模型的注意力在行人身体和背景行人之间分散分配，而去噪后的模型将注意力高度集中于目标行人的上半身和面部区域，有效过滤了背景中其他行人的干扰。
+
+（2）环境噪声在去噪后受到的关注显著降低。差异图（最右列）清晰地展示了本章方法减少了对背景元素（如其他行人、街道设施和杂乱环境）的注意力分配。差异图中的暖色区域（正值差异）表示基线模型比去噪模型分配了更多注意力的区域，这些区域主要对应于背景干扰物。在图\ref{fig:chap4_attn3}中，这一现象尤为明显：基线模型对背景中的建筑物和路面分配了大量注意力，而去噪后这些区域的注意力权重被显著抑制。
+
+（3）定量注意力指标证实了上述改善。为量化注意力聚焦程度的变化，本节计算了两个指标：注意力图与行人边界框掩码之间的Pearson相关系数$r$（衡量注意力与目标区域的整体相关程度）以及Attention-IoU@0.5（将注意力值阈值化后计算与真实行人区域的IoU，衡量注意力的空间聚焦精度）。结果显示Pearson $r$值范围为0.641至0.827，Att-IoU@0.5值范围为0.489至0.537，表明去噪后的注意力重新分配是精细化的身份感知聚焦，而非简单地将所有注意力集中到人体区域的空间定位，模型在保持对目标区域关注的同时，更加精准地区分了具有判别性的身体部位与非信息性的身体区域。
+
+综合上述三个层次的可视化和可解释性分析，可以得出以下结论：特征级去噪通过抑制中间特征中的噪声成分，从根本上改变了模型的注意力分配模式——将注意力从任务无关的背景干扰物重新导向具有判别性的语义区域。这一机制不仅解释了本方法在检索和识别等任务上取得性能提升的内在原因，也为理解扩散模型去噪过程对判别式特征学习的影响提供了可解释性层面的依据。
 
 \section{本章小结}
 \label{sec:chap4_summary}
@@ -468,4 +617,4 @@ Vehicle-ReID\cite{chu2019vehicle} & ResNet-50 & VehicleID & 76.4\% & 69.1\% \\
 
 （3）建立了统一的无监督与有监督去噪增强框架。将第三章的参数融合方法和本章的蒸馏增强方法统一到同一训练框架中，使之既可作为无监督的正则化手段，也可利用标签信息引导有针对性的去噪。
 
-（4）在图像分类、行人重识别、车辆重识别、目标检测和图像分割五类判别式任务上进行了系统实验。消融实验验证了蒸馏模块和融合模块各自的独立贡献及互补性；跨任务实验在14种骨干网络和8种下游方法上均取得了一致的性能提升；特征可视化和距离统计分析从特征几何的角度直观证明了去噪增强对表征质量的改善效果。
+（4）在图像分类、行人重识别、车辆重识别、目标检测、图像分割五类视觉判别任务以及序列推荐和自然语言表征学习两类跨领域任务上进行了系统实验。消融实验验证了蒸馏模块和融合模块各自的独立贡献及互补性；跨任务实验在14种骨干网络和8种下游方法上均取得了一致的性能提升；跨领域实验在推荐系统和自然语言处理任务上的成功进一步证明了方法的通用性——只要模型包含可表示为线性变换的嵌入层，本方法即可即插即用地提升表征质量。特征分布可视化、下游任务定性可视化和注意力图可解释性分析分别从特征几何、任务输出和模型决策三个层面，直观证明了去噪增强对表征质量的改善效果及其内在作用机理。

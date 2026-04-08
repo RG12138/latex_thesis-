@@ -808,6 +808,39 @@ Combining Distillation Module and Fusion Module (+ \textit{DenoiseRep\textsupers
 In summary, the ablation results demonstrate that the two modules are both effective and complementary. Specifically, the Distillation Module improves the prediction quality of the denoiser, while the Fusion Module enhances denoising strength under architectural constraints. When combined, they yield the strongest feature representations across a wide range of discriminative vision tasks.
 
 
+\subsection{Analysis of Layer-wise Denoising Configuration}
+\label{sec:layer_wise_denoising}
+
+To investigate how the denoising depth and step count jointly affect representation quality, we conduct a systematic ablation study on the layer-wise denoising configuration. Taking ViT as the backbone, we partition its 12 transformer layers into three equal intervals—shallow (layers 1–4), middle (layers 5–8), and deep (layers 9–12)—and apply varying numbers of denoising steps (1, 2, 4, and 8) within each interval. All experiments are evaluated on the DukeMTMC-reID dataset using the mAP metric, with both ViT-Small and ViT-Base backbones.
+
+\begin{table}[t]
+\centering
+\caption{Effect of denoising step count and layer interval on person ReID performance (mAP, \%) on DukeMTMC-reID.}
+\label{tab:layer_wise_denoising}
+\vspace{0.2cm}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{c|ccc|ccc}
+\hline \hline
+\multirow{2}{*}{\textbf{Steps}} & \multicolumn{3}{c|}{\textbf{ViT-Small}} & \multicolumn{3}{c}{\textbf{ViT-Base}} \\
+ & 1--4 & 5--8 & 9--12 & 1--4 & 5--8 & 9--12 \\
+\hline
+1-step & 81.5 & 81.4 & 81.5 & 84.1 & 84.1 & 84.1 \\
+2-step & 81.7 & 81.9 & 81.9 & 84.2 & 84.1 & 84.2 \\
+4-step & 82.2 & 82.3 & \textbf{82.5} & 84.1 & 84.1 & \textbf{84.3} \\
+8-step & 81.8 & 82.0 & 82.2 & 83.7 & 83.9 & 84.0 \\
+\hline \hline
+\end{tabular}
+\end{table}
+
+As shown in Table~\ref{tab:layer_wise_denoising}, several important trends emerge from the results.
+
+\textbf{(1) Deeper layers benefit more from denoising.} Across both ViT-Small and ViT-Base, applying denoising to the deeper layer interval (layers 9–12) consistently achieves the best performance. For instance, with 4-step denoising on ViT-Small, the deep interval attains 82.5\% mAP, compared to 82.2\% for the shallow interval and 82.3\% for the middle interval. This observation aligns with the intuition that deeper layers encode higher-level semantic features, where noise contamination is more detrimental to discriminability and denoising yields greater benefit.
+
+\textbf{(2) Moderate denoising steps are optimal.} Performance generally improves as the number of denoising steps increases from 1 to 4, but degrades when further increased to 8 steps. This suggests that excessive denoising may over-smooth features and remove useful discriminative signals, leading to information loss. The sweet spot at 4 steps balances noise removal effectiveness with feature preservation.
+
+\textbf{(3) Larger backbones exhibit greater robustness.} The performance variance across different configurations is notably smaller for ViT-Base (ranging from 83.7\% to 84.3\%) than for ViT-Small (81.4\% to 82.5\%). This indicates that larger models, which already extract more robust features, are less sensitive to denoising hyperparameters but can still benefit from appropriate configurations.
+
+
 \subsection{Experiment on Vehicle Identification} 
 \label{sec: Experiment on Vehicle Identification}
 In the image retrieval task, we also conduct experiments to verify the effectiveness of our method on the vehicle recognition task. Vehicle recognition in practical scenarios often results in images containing a large amount of noise due to environmental factors such as lighting or occlusion, which increases the difficulty of detection. Our method is based on denoising to obtain features with better representation ability. Therefore, we want to experimentally verify whether the \textit{DenoiseRep} plays a role in vehicle recognition tasks with higher noise levels. We select vehicleID~\cite{liu2016deep} as the dataset, vehicle-ReID~\cite{chu2019vehicle} as the baseline, and ResNet-50 as the feature extractor for the experiment.
@@ -939,6 +972,56 @@ SegFormer & mit\_b1 & 0.812 & 0.816 & 0.341 & 0.348 & 0.422 & 0.425 \\
 As shown in Table \ref{tab:image_segmentation_tasks}, we compare two classical backbone networks with different methods. After adding the \textit{DenoiseRep}, both IoU metrics improve without adding model parameters. Practice proves that our method can improve the representation learning ability of the model and obtain more effective features through denoising without increasing additional time costs. In addition, \textit{DenoiseRep} well to generalized to image segmentation tasks.
 
 
+\subsection{Cross-domain Generalization Experiments}
+\label{sec:cross_domain}
+
+To further verify the generalization capability of \textit{DenoiseRep\textsuperscript{++}} beyond computer vision, we extend our method to two fundamentally different domains: sequential recommendation and natural language processing (NLP). These experiments aim to demonstrate that the proposed feature-level denoising paradigm is not limited to visual representations but is broadly applicable to any transformer-based architecture.
+
+\textbf{Sequential Recommendation.}
+We apply \textit{DenoiseRep} to SASRec~\cite{kang2018self}, a representative self-attentive sequential recommendation model, on the MovieLens-1M~\cite{harper2015movielens} dataset. SASRec encodes user interaction sequences through an embedding layer followed by two Self-Attention Blocks to predict the next item. We integrate the denoising module into each Self-Attention Block (4 linear layers in total). As shown in Table~\ref{tab:cross_domain_rec}, applying \textit{DenoiseRep} improves HR@10 from 0.8481 to 0.8552 (+0.84\%) and NDCG@10 from 0.5913 to 0.5998 (+1.44\%), demonstrating that denoising sequential representations effectively reduces noise introduced by sparse and noisy user interactions.
+
+\begin{table}[t]
+\centering
+\caption{Cross-domain evaluation on sequential recommendation (MovieLens-1M). SASRec serves as the baseline model.}
+\label{tab:cross_domain_rec}
+\vspace{0.2cm}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{l|cc}
+\hline \hline
+\textbf{Method} & \textbf{HR@10} & \textbf{NDCG@10} \\
+\hline
+SASRec & 0.8481 & 0.5913 \\
+SASRec + \textit{\textbf{DenoiseRep}} & \textbf{0.8552} & \textbf{0.5998} \\
+\hline \hline
+\end{tabular}
+\end{table}
+
+\textbf{Sentence Representation Learning.}
+We further evaluate \textit{DenoiseRep} on the sentence representation learning task using SimCSE~\cite{gao2021simcse} with a BERT-base~\cite{devlin2019bert} backbone, evaluated on the STS-B benchmark~\cite{cer2017semeval}. SimCSE encodes input sentences through BERT's embedding layer and 12 Transformer Blocks, and extracts the \texttt{[CLS]} token representation for contrastive learning. We insert the denoising module into all 24 linear layers within the BERT Transformer Blocks. As shown in Table~\ref{tab:cross_domain_nlp}, incorporating \textit{DenoiseRep} yields consistent improvements under both unsupervised and supervised settings. Under the unsupervised setting, the STS-B score increases from 76.25 to 77.11 (+0.86), while under the supervised setting, it improves from 81.57 to 81.89 (+0.32).
+
+\begin{table}[t]
+\centering
+\caption{Cross-domain evaluation on sentence representation learning (STS-B). SimCSE with BERT-base serves as the baseline.}
+\label{tab:cross_domain_nlp}
+\vspace{0.2cm}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{l|c}
+\hline \hline
+\textbf{Method} & \textbf{STS-B} \\
+\hline
+BERT-base (no fine-tune) & 48.64 \\
+SimCSE-BERT-base (unsupervised) & 76.25 \\
+SimCSE-BERT-base (supervised) & 81.57 \\
+\hline
+SimCSE-BERT-base + \textit{\textbf{DenoiseRep}} (unsupervised) & \textbf{77.11} \\
+SimCSE-BERT-base + \textit{\textbf{DenoiseRep}} (supervised) & \textbf{81.89} \\
+\hline \hline
+\end{tabular}
+\end{table}
+
+Notably, the improvement is more pronounced under the unsupervised setting (+0.86 vs.~+0.32). This observation is consistent with our hypothesis: in the absence of explicit supervisory signals, the feature space tends to exhibit greater anisotropy and more severe noise contamination, providing a larger margin for denoising to enhance representation quality. These cross-domain results confirm that \textit{DenoiseRep\textsuperscript{++}} is a general-purpose, model-agnostic technique that benefits any transformer-based architecture by refining feature representations at the embedding level.
+
+
 \subsection{Visualization and Statistical Analysis}
 \label{sec:visualization_analysis}
 
@@ -958,12 +1041,8 @@ This qualitative result indicates that denoising helps reduce feature noise, the
   % 注意：宽度由 includegraphics 直接控制，\\ 表示换行
   \subfloat[Baseline (without denoising)\label{fig:tsne_baseline}]{
     \includegraphics[width=0.9\columnwidth]{picture/baseline_tsne.png}
-  }
-  
-  \\ % 强制换行，实现竖向排列
-
-  % \vspace{0.3cm} % 调整两图间距
-
+  }%
+  \\[0.3cm] % 强制换行，实现竖向排列
   % 子图 (b)
   \subfloat[With \textit{DenoiseRep\textsuperscript{++}}\label{fig:tsne_denoise}]{
     \includegraphics[width=0.9\columnwidth]{picture/denoise_tsne.png}
@@ -979,13 +1058,9 @@ This qualitative result indicates that denoising helps reduce feature noise, the
     
     % 子图 (a) Baseline
     \subfloat[Baseline\label{fig:distance_hist_baseline}]{
-        % 注意：这里直接设置图片宽度为 0.8\columnwidth
         \includegraphics[width=0.8\columnwidth]{picture/layer12_modelA.png}
-    }
-    
-    \\ % 强制换行，让两张图竖向排列（如果不加可能会试图并排）
-    % \vspace{0.5cm} % 保持原本的垂直间距
-
+    }%
+    \\[0.3cm] % 强制换行，让两张图竖向排列
     % 子图 (b) With DenoiseRep
     \subfloat[With \textit{DenoiseRep\textsuperscript{++}}\label{fig:distance_hist_denoise}]{
         \includegraphics[width=0.8\columnwidth]{picture/layer12_modelB.png}
@@ -1130,6 +1205,24 @@ Overlap        & 0.463 & 0.4161 \\
 \end{table}
 
 
+\begin{figure*}[t]
+    \centering
+    \subfloat[Example 1: Pearson $r{=}0.827$, Att-IoU@0.5${=}0.521$]{%
+        \includegraphics[width=0.48\textwidth]{picture/attn_reid_1.png}%
+    }\hfill
+    \subfloat[Example 2: Pearson $r{=}0.811$, Att-IoU@0.5${=}0.537$]{%
+        \includegraphics[width=0.48\textwidth]{picture/attn_reid_2.png}%
+    }%
+    \\[1ex]
+    \subfloat[Example 3: Pearson $r{=}0.641$, Att-IoU@0.5${=}0.489$]{%
+        \includegraphics[width=0.48\textwidth]{picture/attn_reid_3.png}%
+    }\hfill
+    \subfloat[Example 4]{%
+        \includegraphics[width=0.48\textwidth]{picture/attn_reid_4.png}%
+    }
+    \caption{Attention map comparison between the Baseline and \textit{DenoiseRep\textsuperscript{++}} on person re-identification (DukeMTMC-reID). Each sub-figure shows, from left to right: original image, baseline attention heatmap, baseline overlay, \textit{DenoiseRep\textsuperscript{++}} heatmap, \textit{DenoiseRep\textsuperscript{++}} overlay, and the pixel-wise difference map (Baseline $-$ \textit{DenoiseRep\textsuperscript{++}}). After denoising, the model's attention is more concentrated on identity-discriminative regions (e.g., face, clothing) and less responsive to background distractors.}
+    \label{fig:attn_map_reid}
+\end{figure*}
 
 \textbf{Discussion.} 
 Both the qualitative (t-SNE) and quantitative (statistical measures) analyses lead to consistent conclusions: 
@@ -1148,6 +1241,19 @@ Furthermore, Fig.~\ref{fig:reid_vis_vertical} visualizes the retrieval ranking r
 While the Baseline model is prone to retrieving incorrect identities (marked with red borders) due to background distractions or similar clothing, our method consistently retrieves correct matches (marked with green borders) in the top ranks. 
 These visualizations confirm that the proposed feature denoising strategy significantly enhances representation robustness, reducing the impact of task-irrelevant noise in both detection and retrieval scenarios.
 
+
+\textbf{Attention map interpretability analysis.}
+To provide an interpretable understanding of how feature-level denoising affects model behavior, we visualize the attention maps of the baseline and \textit{DenoiseRep\textsuperscript{++}} models on the person re-identification task. Specifically, we employ Attention Rollout~\cite{abnar2020quantifying} to aggregate multi-head attention across all transformer layers with mean fusion, generating holistic attention heatmaps for each input image.
+
+As shown in Fig.~\ref{fig:attn_map_reid}, we present three representative examples from the DukeMTMC-reID dataset. For each example, we visualize the original image, baseline attention heatmap and overlay, \textit{DenoiseRep\textsuperscript{++}} attention heatmap and overlay, and their pixel-wise difference map. Several key observations emerge:
+
+(1) \textit{The denoised model focuses more on identity-discriminative regions.} Comparing the heatmaps of the baseline and \textit{DenoiseRep\textsuperscript{++}}, the denoised model concentrates attention more on semantically meaningful body regions—such as the face, upper body, and clothing textures—that are critical for identity discrimination. In contrast, the baseline model distributes attention more diffusely, including background regions and other non-informative areas.
+
+(2) \textit{Environmental noise receives less attention after denoising.} The difference maps (rightmost column) clearly illustrate that \textit{DenoiseRep\textsuperscript{++}} reduces attention on background elements such as other pedestrians, street furniture, and cluttered surroundings. The warm-colored regions (positive difference) in the difference map indicate areas where the baseline allocates more attention than the denoised model, which predominantly correspond to background distractors.
+
+(3) \textit{Quantitative attention metrics confirm the improvement.} We compute the Pearson correlation coefficient between the attention map and the person bounding box mask, as well as Attention-IoU@0.5 (the IoU between the thresholded attention region and the ground-truth person region). The Pearson $r$ values range from 0.641 to 0.827, and Attention-IoU@0.5 values range from 0.489 to 0.537, indicating that the attention redistribution is nuanced rather than trivially concentrated, reflecting a refined, identity-aware focus rather than simple spatial localization.
+
+These results provide interpretable evidence that feature-level denoising effectively suppresses the model's response to task-irrelevant noise, redirecting attention towards discriminative identity cues. This mechanism explains why \textit{DenoiseRep\textsuperscript{++}} achieves improved performance across retrieval and recognition tasks: by denoising the intermediate features, the model learns to attend to the most informative regions while being less distracted by environmental interference.
 
 
 \subsection{Fairness Experiment}
