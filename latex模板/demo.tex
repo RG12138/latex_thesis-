@@ -1,0 +1,94 @@
+﻿%%%%%%%%%%%% 选择学位类型：博士、学硕%%%%%%%%%%%
+%\documentclass[Doctor]{BJTU-thesis}
+ \documentclass[AcMaster]{BJTU-thesis}  %%学硕
+\usepackage[T1]{fontenc}  %设置英文字体为times new roman
+\usepackage{mathptmx}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\renewcommand{\algorithmicrequire}{\textbf{输入:}}
+\renewcommand{\algorithmicensure}{\textbf{输出:}}
+\usepackage{booktabs}
+
+ 
+
+%%%%%%%%%%%%%%%%%填写封面信息%%%%%%%%%%%%%%%%%%%%%%%%
+\author{许铮睿}                                  %作者姓名
+\studentNumber{23120435}                       %作者学号
+\advisor{黄晓雯}                                 %导师姓名
+\advisorTitle{副教授}                            %导师职称
+\degreeType{工学}                              %学位类别
+\major{计算机科学与技术}                         %所属专业
+\researchArea{模式识别与计算机视觉}                        %研究方向
+\title{基于扩散模型的图像判别任务特征增强算法研究}                               %论文题目
+\englishtitle{Research on Feature Enhancement for Image Discriminative Tasks Based on Diffusion Models}           %论文题目英文
+\datetime{2026年3月}                           %编辑日期
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%\setmainfont{Times New Roman}
+
+\begin{document}
+	\makecover
+	\makeAuthorization
+	\makeInfo
+	\include{chapters/thanks} 									 %致谢部分
+	\include{chapters/abstract}   								 %中文摘要
+	\include{chapters/englishabstract}  							 %英文摘要
+
+	
+	
+	\tableofcontents
+     \newpage\pagenumbering{arabic}
+
+     %正文部分
+     \include{chapters/chapter01} 								%引言
+     \include{chapters/chapter02} 								%第二章
+	\include{chapters/chapter03} 								%第三章
+	\include{chapters/chapter04} 								%第四章
+	\include{chapters/chapter05} 								%第五章
+
+
+
+
+	\nocite{*}
+	\bibliography{reference/ref}
+
+     \backmatter
+	%\begin{appendix}
+                               
+		\input{chapters/appendix01}
+	%\end{appendix}
+
+     \include{chapters/index}	
+
+	\include{chapters/mresume}
+
+	\include{chapters/statement} 	
+
+     \include{chapters/dataset}						
+
+
+\end{document}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
